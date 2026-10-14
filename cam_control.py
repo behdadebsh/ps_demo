@@ -1,7 +1,12 @@
 import polyscope as ps
 import polyscope.imgui as psim
 import numpy as np
+import sys
 import time
+
+if "--check" in sys.argv:
+    print("cam_control dependencies are available")
+    raise SystemExit(0)
 
 # Start polyscope
 ps.init()
@@ -57,4 +62,4 @@ ps.set_user_callback(callback)
 
 ps.set_background_color([0,0,0])
 ps.set_ground_plane_mode('none')
-ps.show()
+ps.show(1 if "--smoke" in sys.argv else None)

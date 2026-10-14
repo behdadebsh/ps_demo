@@ -2,9 +2,18 @@
 import polyscope as ps
 import polyscope.imgui as psim
 import numpy as np
-import pyvista as pv
 import pickle
+import sys
 import time, math
+
+from demo_io import PUBLIC_DATA, load_triangle_surface, validate_public_bundle
+
+if "--check" in sys.argv:
+    summary = validate_public_bundle()
+    print("Public hologram demo data is valid:")
+    for name, value in summary.items():
+        print(f"  {name}: {value}")
+    raise SystemExit(0)
 
 ps.set_print_prefix("ABI Lungs & Respiratory Group 2025\n")
 ps.init()
@@ -13,7 +22,7 @@ ps.set_front_dir("neg_y_front")
 
 # === SCENE 1: extracting upper airway + lobe geometries from 3D image ===
 # Register 3D image volume
-data = np.load('hologram_data/raw_3D_RAS.npz')
+data = np.load(PUBLIC_DATA / 'raw_3D_RAS.npz')
 spacing = data['spacing']
 arr_img = data['array']
 shape = arr_img.shape # in (x,y,z)
@@ -22,26 +31,25 @@ swap_arr = arr_img.transpose(2,1,0) # rearrange [Z,Y,X] to [X,Y,Z]
 bound_low = np.array((0, 0, 0))
 bound_high = np.array((shape[2]*spacing[0], shape[1]*spacing[1], -shape[0]*spacing[2]))
 centre = ((bound_low+bound_high)/2) # set target to centre of block (for turntable revolution)
-ps.set_view_center(centre, fly_to=False) # set new centre for turntable navigation
 
 # Register lobe surface meshes
 meshes = []
 lobes = ['RUL','RML','RLL','LUL','LLL']
 for lobe in lobes:
-    meshes.append(pv.read(f'hologram_data/{lobe}.ply'))
+    meshes.append(load_triangle_surface(PUBLIC_DATA / f'{lobe}.ply'))
 
 # Read in grown airways
-data = np.load("hologram_data/tree.npz")
+data = np.load(PUBLIC_DATA / "tree.npz")
 nodes = data["nodes"]
 edges = data["edges"]
 radius = data["radius"]
 
 # === SCENE 2: tree growing into lobes ===
-with open("hologram_data/growing.pkl", "rb") as f:
+with (PUBLIC_DATA / "growing.pkl").open("rb") as f:
     frames = pickle.load(f)
 
 # === SCENE 3: lung ventilating
-data = np.load('hologram_data/ventilation.npz')
+data = np.load(PUBLIC_DATA / 'ventilation.npz')
 coordinates = data['acinus']
 vols_by_frame = data['dvdt']
 
@@ -220,10 +228,7 @@ def callback():
             existing = True
             meshes_ps = []
             for (lobe,mesh) in zip(lobes,meshes):
-                vertices = mesh.points
-                if mesh.faces.size > 0:
-                    face_array = mesh.faces.reshape((-1, 4))  # Assuming triangular faces
-                    faces = face_array[:, 1:]  # shape: (N_faces, 3)
+                vertices, faces = mesh
                 surf = ps.register_surface_mesh(f'{lobe}',vertices,faces,smooth_shade=True, transparency=0.5)
                 meshes_ps.append(surf) # store to set ignore planes later
 
@@ -295,10 +300,7 @@ def callback():
             existing = True
             meshes_ps = []
             for (lobe,mesh) in zip(lobes,meshes):
-                vertices = mesh.points
-                if mesh.faces.size > 0:
-                    face_array = mesh.faces.reshape((-1, 4))  # Assuming triangular faces
-                    faces = face_array[:, 1:]  # shape: (N_faces, 3)
+                vertices, faces = mesh
                 surf = ps.register_surface_mesh(f'{lobe}',vertices,faces,smooth_shade=True, transparency=transparency[0],enabled=True)
                 meshes_ps.append(surf) # store to set ignore planes later
             
@@ -382,4 +384,4 @@ def callback():
 ps.set_user_callback(callback)
 ps.set_ground_plane_mode("none")
 ps.set_background_color([0,0,0])
-ps.show()
+ps.show(1 if "--smoke" in sys.argv else None)

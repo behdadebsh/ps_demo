@@ -4,6 +4,8 @@ ps_demo_data
 *.png
 *.ply
 ps-venv
+.venv*/
+venv*/
 **/__pycache__/
 *.pyc
 hologram_dev.py

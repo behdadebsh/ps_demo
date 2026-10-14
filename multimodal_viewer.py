@@ -16,6 +16,8 @@ from typing import Iterable, Sequence
 
 import numpy as np
 
+from demo_io import PUBLIC_DATA, load_triangle_surface, validate_public_bundle
+
 
 SURFACE_SUFFIXES = {".stl", ".ply"}
 LAYOUTS = ("side-by-side", "overlay")
@@ -221,22 +223,10 @@ def load_medical_volume(spec: RegionSpec) -> MedicalVolume:
 
 
 def load_surface(path: str | Path) -> tuple[np.ndarray, np.ndarray]:
-    try:
-        import pyvista as pv
-    except ImportError as exc:
-        raise RuntimeError("Surface loading requires PyVista") from exc
-
     source = Path(path)
     if source.suffix.lower() not in SURFACE_SUFFIXES:
         raise ValueError(f"Expected STL or PLY surface, found {source.name}")
-    mesh = pv.read(source)
-    if isinstance(mesh, pv.MultiBlock):
-        mesh = mesh.combine()
-    mesh = mesh.extract_surface().triangulate()
-    faces = np.asarray(mesh.faces, dtype=int).reshape(-1, 4)
-    if faces.size and not np.all(faces[:, 0] == 3):
-        raise ValueError(f"Could not triangulate {source.name}")
-    return np.asarray(mesh.points, dtype=float), faces[:, 1:]
+    return load_triangle_surface(source)
 
 
 def _volume_bounds(volume: MedicalVolume) -> np.ndarray:
@@ -509,7 +499,7 @@ class MultimodalViewer:
         for region in self.regions:
             self._draw_region(psim, region)
 
-    def run(self) -> None:
+    def run(self, *, smoke: bool = False) -> None:
         import polyscope as ps
 
         ps.set_program_name("Polyscope multimodal lung demo")
@@ -519,7 +509,7 @@ class MultimodalViewer:
         self._register()
         ps.set_user_callback(self.callback)
         ps.reset_camera_to_home_view()
-        ps.show()
+        ps.show(1 if smoke else None)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -558,12 +548,24 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         help="Side-by-side gap in the input coordinate units (default: 15%% of max width).",
     )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Validate dependencies and bundled public data without opening a window.",
+    )
+    parser.add_argument(
+        "--smoke",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
     return parser
 
 
 def _public_surface_specs() -> list[RegionSpec]:
-    data = Path(__file__).resolve().parent / "hologram_data"
-    paths = [data / name for name in ("LUL.ply", "LLL.ply", "RUL.ply", "RML.ply", "RLL.ply")]
+    paths = [
+        PUBLIC_DATA / name
+        for name in ("LUL.ply", "LLL.ply", "RUL.ply", "RML.ply", "RLL.ply")
+    ]
     available = [path for path in paths if path.exists()]
     if not available:
         return []
@@ -573,6 +575,12 @@ def _public_surface_specs() -> list[RegionSpec]:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.check:
+        summary = validate_public_bundle()
+        print("Public multimodal demo data is valid:")
+        for name, value in summary.items():
+            print(f"  {name}: {value}")
+        return 0
     if args.manifest:
         specs, manifest_layout, manifest_gap = load_manifest(args.manifest)
         layout = manifest_layout
@@ -585,7 +593,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         specs = _public_surface_specs()
     if not specs:
         parser.error("Provide --ct, --mr, --surface/--stl, or --manifest")
-    MultimodalViewer(specs, layout=layout, gap=gap).run()
+    MultimodalViewer(specs, layout=layout, gap=gap).run(smoke=args.smoke)
     return 0
 
 

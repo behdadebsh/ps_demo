@@ -1,8 +1,10 @@
 import polyscope as ps
 import polyscope.imgui as psim
 import numpy as np
-import pyvista as pv
-import re,time
+import pickle
+import re,time,sys
+
+from demo_io import PRIVATE_DATA, PUBLIC_DATA, load_triangle_surface
 
 def extract_coordinates(file_path):
     coordinates = []
@@ -86,33 +88,41 @@ It reads the nodes, edges, and radius from specified files, processes them, and 
 
 # === READ DATA ===
 
-# Read tree
-nodes = extract_coordinates('ps_demo_data/grown.ipnode')
-edges = extract_global_numbers('ps_demo_data/grown.ipelem')
-
-# Read mesh
-mesh = pv.read('ps_demo_data/peeled.ply')
-
-# === PREP DATA ===
-
-edges = edges - 1 # IMPORTANT: python is zero-indexing, so adjust connections accordingly
-
-# Split tree into frames. each frame has more branches
-frames = split_frames(nodes,edges,num_frames=60)
-
-# Make 1st frame the upper airway centreline (14 nodes)
-frames[0] = {'nodes':nodes[:15],'edges':edges[:14]}
-
-# Get vertices and faces from mesh
-vertices = mesh.points
-if mesh.faces.size > 0:
-    face_array = mesh.faces.reshape((-1, 4))  # Assuming triangular faces
-    faces = face_array[:, 1:]  # shape: (N_faces, 3)
+private_paths = [
+    PRIVATE_DATA / 'grown.ipnode',
+    PRIVATE_DATA / 'grown.ipelem',
+    PRIVATE_DATA / 'peeled.ply',
+]
+if all(path.is_file() for path in private_paths):
+    nodes = extract_coordinates(private_paths[0])
+    edges = extract_global_numbers(private_paths[1]) - 1
+    vertices, faces = load_triangle_surface(private_paths[2])
+    frames = split_frames(nodes, edges, num_frames=60)
+    frames[0] = {'nodes': nodes[:15], 'edges': edges[:14]}
 else:
-    print(f'No faces?')
-    faces = []
+    with (PUBLIC_DATA / 'growing.pkl').open('rb') as stream:
+        frames = pickle.load(stream)
+    nodes = np.asarray(frames[-1]['nodes'])
+    edges = np.asarray(frames[-1]['edges'], dtype=int)
+    vertex_blocks = []
+    face_blocks = []
+    vertex_offset = 0
+    for name in ('LUL.ply', 'LLL.ply', 'RUL.ply', 'RML.ply', 'RLL.ply'):
+        lobe_vertices, lobe_faces = load_triangle_surface(PUBLIC_DATA / name)
+        vertex_blocks.append(lobe_vertices)
+        face_blocks.append(lobe_faces + vertex_offset)
+        vertex_offset += len(lobe_vertices)
+    vertices = np.vstack(vertex_blocks)
+    faces = np.vstack(face_blocks)
 
 # === POLYSCOPING BEGINS ===
+
+if "--check" in sys.argv:
+    print(
+        f"animate_grow_tree data is valid: {len(frames)} frames, "
+        f"{len(nodes)} final nodes, {len(faces)} surface faces"
+    )
+    raise SystemExit(0)
 
 ps.init()
 
@@ -162,4 +172,4 @@ ps.set_navigation_style("free")
 ps.set_up_dir("z_up")
 ps.set_front_dir("neg_y_front")
 ps.set_background_color([0,0,0])
-ps.show()
+ps.show(1 if "--smoke" in sys.argv else None)

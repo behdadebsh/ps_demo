@@ -1,8 +1,9 @@
 # ps_demo
 
 Scripts to visualise and animate lung models with [Polyscope](https://polyscope.run/py/).
-The public data in `hologram_data` can be used with `hologram.py`; contact the
-authors for the private data used by the other legacy scripts.
+All demos now run with the public compressed data in `hologram_data`. Where the
+original private `ps_demo_data` files are available, the legacy scripts continue
+to prefer those source files.
 
 ## Setup
 
@@ -24,6 +25,22 @@ venv-ps\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
+
+The requirements file lists only the four direct dependencies. PyVista and VTK
+are not required; STL/PLY files are loaded with Trimesh. This avoids the
+platform- and Python-version-specific VTK wheel conflict in the old frozen
+requirements file.
+
+Before opening a window, verify the installation and public data:
+
+```bash
+python multimodal_viewer.py --check
+python hologram.py --check
+```
+
+If an older environment already contains the previous pinned VTK/PyVista
+packages, create a new virtual environment rather than trying to repair that
+environment in place.
 
 ## CT/MR and surface comparison demo
 
@@ -112,7 +129,11 @@ remain in patient/world coordinates. This avoids making LungViZ import code
 from a demo repository and lets the same state model support more modalities
 later.
 
-## Legacy demos
+## Included demos
+
+Each command below runs with the checked-in public data. The animation and mesh
+scripts transparently use equivalent arrays from `hologram_data` when the
+original private files are absent.
 
 ```bash
 python hologram.py
@@ -136,4 +157,18 @@ Run the non-graphical demo tests with:
 
 ```bash
 python -m unittest discover -s tests -v
+```
+
+Maintainers can also perform a one-frame graphical smoke test without leaving a
+window open:
+
+```bash
+python multimodal_viewer.py --smoke
+python hologram.py --smoke
+python animate_breath.py --smoke
+python animate_grow_tree.py --smoke
+python animate_grow_tree_mesh.py --smoke
+python visualise_model.py --smoke
+python visualise_tree_mesh.py --smoke
+python cam_control.py --smoke
 ```

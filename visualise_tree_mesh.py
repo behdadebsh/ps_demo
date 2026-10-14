@@ -1,7 +1,9 @@
 import numpy as np
 import polyscope as ps
-import re
+import re, sys
 from collections import defaultdict
+
+from demo_io import PRIVATE_DATA, PUBLIC_DATA
 
 def extract_coordinates(file_path):
     coordinates = []
@@ -310,10 +312,22 @@ The mesh is visualized using Polyscope.
 """
 
 # Read grown tree data
-nodes = extract_coordinates('ps_demo_data/grown.ipnode')
-edges = extract_global_numbers('ps_demo_data/grown.ipelem')
-edges = edges - 1  # Adjust for zero-indexing
-radius = extract_radius('ps_demo_data/grown_radius.ipfiel')
+private_paths = [
+    PRIVATE_DATA / 'grown.ipnode',
+    PRIVATE_DATA / 'grown.ipelem',
+    PRIVATE_DATA / 'grown_radius.ipfiel',
+]
+using_private_data = all(path.is_file() for path in private_paths)
+if using_private_data:
+    nodes = extract_coordinates(private_paths[0])
+    edges = extract_global_numbers(private_paths[1]) - 1
+    radius = extract_radius(private_paths[2])
+else:
+    with np.load(PUBLIC_DATA / 'tree.npz') as tree_data:
+        nodes = np.asarray(tree_data['nodes'])
+        edges = np.asarray(tree_data['edges'], dtype=int)
+        node_radius = np.asarray(tree_data['radius'])
+    radius = np.mean(node_radius[edges], axis=1)
 radii = np.column_stack([radius, radius]) # since we only have one radius per edge, we duplicate it for both ends
 
 # Generate synthetic flow values per edge to map to mesh vertices
@@ -329,9 +343,20 @@ n_segments = 10
 verts_joint, faces_joint, data_joint = generate_network_tube_mesh(nodes, edges, edge_radii, data=flow, segments=n_segments)
 
 # Gives us an option to read in mesh later so we don't have to generate mesh from scratch every time
-export_mesh_to_ply(verts_joint, faces_joint, "ps_demo_data/grown.ply", ascii=True, n_edges=len(edges), n_segments=n_segments,vertex_data=data_joint)
-meta = read_ply_header_comments("ps_demo_data/grown.ply")
+if using_private_data:
+    output_path = PRIVATE_DATA / "grown.ply"
+    export_mesh_to_ply(verts_joint, faces_joint, output_path, ascii=True, n_edges=len(edges), n_segments=n_segments,vertex_data=data_joint)
+    meta = read_ply_header_comments(output_path)
+else:
+    meta = {'n_edges': len(edges), 'n_segments': n_segments}
 print(meta) # check that n edges and n segments are read correctly
+
+if "--check" in sys.argv:
+    print(
+        f"visualise_tree_mesh data is valid: {len(nodes)} nodes, "
+        f"{len(edges)} edges, {len(faces_joint)} smooth mesh faces"
+    )
+    raise SystemExit(0)
 
 # Initialize polyscope
 ps.init()
@@ -351,4 +376,4 @@ ps.set_up_dir("z_up")
 ps.set_front_dir("neg_y_front")
 ps.set_background_color([0,0,0])
 ps.set_view_projection_mode('orthographic')
-ps.show()
+ps.show(1 if "--smoke" in sys.argv else None)

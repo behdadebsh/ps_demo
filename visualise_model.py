@@ -1,8 +1,10 @@
 import polyscope as ps
 import numpy as np
 import SimpleITK as sitk
-import re, os
+import re, os, sys
 from collections import defaultdict
+
+from demo_io import PRIVATE_DATA, PUBLIC_DATA
 
 def read_exnodedata(file_path,extn='.exnode'):
     """
@@ -190,29 +192,48 @@ In this script, we will visualise the lung model overlaid on the lung image it w
 """
 
 # === READ DATA ===
-img = sitk.ReadImage('ps_demo_data/raw_3D_RAS.mha')
-units_dict = read_exnodedata('ps_demo_data/terminal.exnode')
-nodes = extract_coordinates('ps_demo_data/grown.ipnode')
-edges = extract_global_numbers('ps_demo_data/grown.ipelem')
-radius = extract_radius('ps_demo_data/grown_radius.ipfiel')
+private_paths = [
+    PRIVATE_DATA / 'raw_3D_RAS.mha',
+    PRIVATE_DATA / 'terminal.exnode',
+    PRIVATE_DATA / 'grown.ipnode',
+    PRIVATE_DATA / 'grown.ipelem',
+    PRIVATE_DATA / 'grown_radius.ipfiel',
+]
+if all(path.is_file() for path in private_paths):
+    img = sitk.ReadImage(str(private_paths[0]))
+    units_dict = read_exnodedata(private_paths[1])
+    nodes = extract_coordinates(private_paths[2])
+    edges = extract_global_numbers(private_paths[3]) - 1
+    radius = extract_radius(private_paths[4])
+    spacing = img.GetSpacing()
+    arr_img = sitk.GetArrayFromImage(img)
+    coordinates = np.asarray(units_dict[('coordinates', 3)])
+    flow = np.asarray(units_dict[('flow', 1)])
+    joint_radii, _ = compute_joint_radii(nodes, edges, radius)
+else:
+    with np.load(PUBLIC_DATA / 'raw_3D_RAS.npz') as image_data:
+        spacing = np.asarray(image_data['spacing'])
+        arr_img = np.asarray(image_data['array'])
+    with np.load(PUBLIC_DATA / 'ventilation.npz') as ventilation:
+        coordinates = np.asarray(ventilation['acinus'])
+        flow = np.mean(np.abs(ventilation['dvdt']), axis=0)
+    with np.load(PUBLIC_DATA / 'tree.npz') as tree_data:
+        nodes = np.asarray(tree_data['nodes'])
+        edges = np.asarray(tree_data['edges'], dtype=int)
+        joint_radii = np.asarray(tree_data['radius'])
 
 # === PREP DATA ===
-# Prepare image info
-spacing = img.GetSpacing()
-arr_img = sitk.GetArrayFromImage(img) # in [Z,Y,X]
-shape = arr_img.shape # in (x,y,z)
-swap_arr = arr_img.transpose(2,1,0) # rearrange [Z,Y,X] to [X,Y,Z]
-
-# Prepare terminal units info
-coordinates = np.array(units_dict[('coordinates',3)])
-flow = np.array(units_dict[('flow',1)])
-
-# Prepare tree info
-edges = edges - 1 # IMPORTANT: python is zero-indexing, so adjust connections accordingly
-
-joint_radii, _ = compute_joint_radii(nodes, edges, radius)
+shape = arr_img.shape
+swap_arr = arr_img.transpose(2, 1, 0)
 
 # === POLYSCOPING BEGINS ===
+if "--check" in sys.argv:
+    print(
+        f"visualise_model data is valid: {arr_img.size} voxels, "
+        f"{len(coordinates)} tissue points, {len(edges)} airway edges"
+    )
+    raise SystemExit(0)
+
 ps.init()
 
 # Define a 3D volume using the Bounding Box of the 3D image in [X,Y,Z] format
@@ -259,4 +280,4 @@ ps.set_navigation_style("free")
 ps.set_up_dir("z_up")
 ps.set_front_dir("neg_y_front")
 ps.set_background_color([0,0,0])
-ps.show()
+ps.show(1 if "--smoke" in sys.argv else None)

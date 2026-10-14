@@ -1,7 +1,9 @@
 import polyscope as ps
 import numpy as np
 import polyscope.imgui as psim
-import os,re,time,math
+import os,re,time,math,sys
+
+from demo_io import PRIVATE_DATA, PUBLIC_DATA
 
 def read_terminaldvdt_bin(binpath):
     """
@@ -172,23 +174,38 @@ A tree visualisation is also registered, showing the airway structure.
 
 # === READ DATA ===
 
-# Read terminal unit coordinates
-units_dict = read_exnodedata('ps_demo_data/terminal.exnode')
-
-# Read terminaldvdt.bin. A human-readable txt file is fine too, we use a binary file here as it's 2x smaller than txt.
-node_numbers, vals_by_frame = read_terminaldvdt_bin('ps_demo_data/terminaldvdt.bin')
-
-# Sort coordinates by Node numbers
-combined = list(zip(units_dict[('Node number', None)], units_dict[('coordinates', 3)])) # Zip node numbers with coordinates
-combined_sorted = sorted(combined, key=lambda x: x[0]) # Sort both by node number
-sorted_nodes, sorted_coords = zip(*combined_sorted) # Unzip the sorted pairs back into separate lists
-
-# Read tree (ipnode or exelem, as long the connections are read in correctly)
-nodes = extract_coordinates('ps_demo_data/grown.ipnode')
-edges = extract_global_numbers('ps_demo_data/grown.ipelem')
-edges = edges - 1 # IMPORTANT: python is zero-indexing. Shift corresponding Node numbers accordingly.
+private_paths = [
+    PRIVATE_DATA / 'terminal.exnode',
+    PRIVATE_DATA / 'terminaldvdt.bin',
+    PRIVATE_DATA / 'grown.ipnode',
+    PRIVATE_DATA / 'grown.ipelem',
+]
+if all(path.is_file() for path in private_paths):
+    # Preserve the original input path when the private source data is available.
+    units_dict = read_exnodedata(private_paths[0])
+    _node_numbers, vals_by_frame = read_terminaldvdt_bin(private_paths[1])
+    combined = list(zip(units_dict[('Node number', None)], units_dict[('coordinates', 3)]))
+    combined_sorted = sorted(combined, key=lambda x: x[0])
+    _sorted_nodes, sorted_coords = zip(*combined_sorted)
+    nodes = extract_coordinates(private_paths[2])
+    edges = extract_global_numbers(private_paths[3]) - 1
+else:
+    # Public compressed equivalents used by hologram.py.
+    with np.load(PUBLIC_DATA / 'ventilation.npz') as ventilation:
+        sorted_coords = np.asarray(ventilation['acinus'])
+        vals_by_frame = np.asarray(ventilation['dvdt'])
+    with np.load(PUBLIC_DATA / 'tree.npz') as tree_data:
+        nodes = np.asarray(tree_data['nodes'])
+        edges = np.asarray(tree_data['edges'], dtype=int)
 
 # === POLYSCOPING BEGINS ===
+
+if "--check" in sys.argv:
+    print(
+        f"animate_breath data is valid: {len(sorted_coords)} points, "
+        f"{len(vals_by_frame)} frames, {len(edges)} airway edges"
+    )
+    raise SystemExit(0)
 
 ps.init() # initialise polyscope
 
@@ -257,4 +274,4 @@ ps.set_navigation_style("free")
 ps.set_up_dir("z_up")
 ps.set_front_dir("neg_y_front")
 ps.set_background_color([0,0,0])
-ps.show() # give control to the main loop, blocks until window is exited
+ps.show(1 if "--smoke" in sys.argv else None) # one frame for automated smoke testing
