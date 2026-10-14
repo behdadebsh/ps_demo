@@ -45,11 +45,6 @@ data = np.load('hologram_data/ventilation.npz')
 coordinates = data['acinus']
 vols_by_frame = data['dvdt']
 
-# === END SCENE: ABI logo and credits
-from PIL import Image
-img = Image.open('hologram_data/download.jpeg')#.convert("RGB") # force 3 channels
-img = np.array(img,dtype=np.float32) / 255.0 # normalise values [0,1]
-
 # --- CLEAR MEMORY: delete variables not needed after callback ---
 del data, arr_img, bound_high, bound_low, lobe
 import gc
@@ -88,16 +83,6 @@ n_vent = len(vols_by_frame)
 vent_f = 0
 vent = False
 
-# END SCENE variables
-end = False
-end_f = 0
-offset = 5
-n_fade = 15
-n_end = 30
-transparency_end = np.linspace(0.0,1.0,n_fade)
-alpha = 10
-transparency_end = (np.exp(alpha*transparency_end)/(np.exp(alpha)-1))
-
 # Shared variables
 existing = False # SHARED variable
 existing_plane = False
@@ -114,8 +99,6 @@ def callback():
     # vars for Ventilation
     global coordinates, pts, nodes,edges,radius
     global vent, n_vent, update_vent, vent_f, vols_by_frame, pts
-    # vars for End scene
-    global end_f, n_end, end, transparency_end, update_end, img, n_fade, offset
     # shared vars
     global existing, existing_plane
 
@@ -123,7 +106,6 @@ def callback():
     update_extract = False
     update_grow = False
     update_vent = False
-    update_end = False
     vmin = math.floor(np.min(vols_by_frame))
     vmax = math.ceil(np.max(vols_by_frame))
 
@@ -222,8 +204,8 @@ def callback():
         tree=pts=None
         existing = False
         if extract:
-            grow=vent=end=False # make sure other scenes off
-            update_grow=update_vent=update_end=False
+            grow=vent=False # make sure other scenes off
+            update_grow=update_vent=False
             ps.set_navigation_style('turntable')
     if not extract:
         update_extract = False
@@ -299,8 +281,8 @@ def callback():
                 ps.remove_last_scene_slice_plane()
                 ps.remove_last_scene_slice_plane()
                 existing_plane=False
-            extract=vent=end=False
-            update_extract=update_vent=update_end=False
+            extract=vent=False
+            update_extract=update_vent=False
         if not grow:
             update_grow = False
     if grow: # SCENE 2 button
@@ -345,7 +327,7 @@ def callback():
     if(psim.TreeNode("Manual")):
         slider_grow, grow_f = psim.SliderInt("Current Frame",grow_f,0,n_frames_grow-1)
         if slider_grow:
-            if extract or vent or end: # if clicked on manual slider while other stuff was activated
+            if extract or vent: # if clicked on manual slider while other stuff was activated
                 psim.TreePop() # close TreeNode to avoid complains
                 return # ignore the click or else it'll seg fault
             grow=False # stop autoplay
@@ -370,8 +352,8 @@ def callback():
                 ps.remove_last_scene_slice_plane()
                 existing_plane=False
 
-            extract=grow=end=False
-            update_extract=update_grow=update_end=False
+            extract=grow=False
+            update_extract=update_grow=False
         if not vent:
             update_vent = False
     if vent: # SCENE 3 button
@@ -396,53 +378,6 @@ def callback():
         pts.add_scalar_quantity("volume", vols_by_frame[vent_f],vminmax=(vmin,vmax),enabled=True,cmap='jet')
         pts.set_point_radius_quantity("volume")
         psim.TextUnformatted(f"Lung volume: {np.sum(vols_by_frame[vent_f])/10**6:.2f} L")
-
-    changed_end, end = psim.Checkbox("Surprise!", end) # END SCENE button
-    if changed_end:
-        ps.remove_all_structures()
-        tree=pts=None
-        existing = False
-        if end:
-            if existing_plane:
-                ps.remove_last_scene_slice_plane()
-                ps.remove_last_scene_slice_plane()
-                ps.remove_last_scene_slice_plane()
-                ps.remove_last_scene_slice_plane()
-                existing_plane=False
-
-            intrinsics = ps.CameraIntrinsics(fov_vertical_deg=60.,aspect=1024/768)
-            extrinsics = ps.CameraExtrinsics((centre[0],centre[0]-spin_radius,centre[2]),look_dir=(0,1,0),up_dir=(0,0,1))
-            params = ps.CameraParameters(intrinsics,extrinsics)
-            ps.set_view_camera_parameters(params)
-
-            extract=vent=grow=False
-            update_extract=update_grow=update_vent=False
-
-        if not end:
-            update_end=False
-    if end:
-        update_end = True
-        end_f = (end_f+1) % n_end
-        time.sleep(0.05)
-        if not existing:
-            existing = True
-            pts = ps.register_point_cloud("tissue units",np.array(coordinates),enabled=True) # Visualise tissue units
-            pts.add_scalar_quantity("volume",vols_by_frame[0],vminmax=(vmin,vmax),enabled=True,cmap='jet')
-            pts.set_point_radius_quantity("volume")
-                
-        if end_f<offset:
-            update_end=False
-
-        if end_f == offset:
-            update_end=True
-            pts.add_color_image_quantity("color_img", img, enabled=True, 
-                                    show_fullscreen=True, show_in_imgui_window=False, transparency=transparency_end[end_f-offset])
-
-        if end_f>=n_fade+offset:
-            update_end=False
-    if update_end:
-        pts.add_color_image_quantity("color_img", img, enabled=True, 
-                            show_fullscreen=True, show_in_imgui_window=False, transparency=transparency_end[end_f-offset]) # not transitioning
 
 ps.set_user_callback(callback)
 ps.set_ground_plane_mode("none")
