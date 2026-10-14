@@ -182,12 +182,38 @@ def _display_range(values: np.ndarray, modality: str) -> tuple[float, float]:
 def load_medical_volume(spec: RegionSpec) -> MedicalVolume:
     if spec.volume_path is None or spec.modality is None:
         raise ValueError(f"Region {spec.name!r} does not define a medical image")
+
+    source = spec.volume_path
+    if source.suffix.lower() == ".npz":
+        with np.load(source) as payload:
+            if "array" not in payload or "spacing" not in payload:
+                raise ValueError(
+                    f"NPZ image {source} must contain 'array' and 'spacing' entries"
+                )
+            values = np.asarray(payload["array"], dtype=float)
+            spacing = np.asarray(payload["spacing"], dtype=float)
+        if values.ndim != 3 or spacing.shape != (3,):
+            raise ValueError(f"Expected a 3D array and three spacing values in {source}")
+        # The bundled hologram array is stored as [Z, Y, X], with the patient Z
+        # axis pointing in the negative display direction.
+        values = values.transpose(2, 1, 0)
+        transform = np.eye(4, dtype=float)
+        transform[2, 2] = -1.0
+        return MedicalVolume(
+            name=spec.name,
+            modality=spec.modality,
+            path=source,
+            values=values,
+            spacing=spacing,
+            transform=transform,
+            display_range=_display_range(values, spec.modality),
+        )
+
     try:
         import SimpleITK as sitk
     except ImportError as exc:
         raise RuntimeError("Medical-image loading requires SimpleITK") from exc
 
-    source = spec.volume_path
     if source.is_dir():
         series_ids = list(sitk.ImageSeriesReader.GetGDCMSeriesIDs(str(source)) or [])
         if not series_ids:
@@ -379,9 +405,12 @@ class MultimodalViewer:
                 for item in region.slices:
                     item.structure.set_transform(volume_transform)
 
-    def _register(self) -> None:
+    def register_scene(self) -> None:
+        """Register this viewer inside an already initialized Polyscope app."""
+
         import polyscope as ps
 
+        self.clear_scene()
         for spec in self.specs:
             bounds: list[np.ndarray] = []
             volume = load_medical_volume(spec) if spec.volume_path else None
@@ -432,6 +461,22 @@ class MultimodalViewer:
 
         self._set_layout(self.layout)
         self.message = f"Loaded {len(self.regions)} independent region(s)."
+
+    def clear_scene(self) -> None:
+        """Remove only structures owned by this viewer."""
+
+        for region in self.regions:
+            for item in region.slices:
+                try:
+                    item.structure.remove()
+                except RuntimeError:
+                    pass
+            for surface in region.surfaces:
+                try:
+                    surface.structure.remove()
+                except RuntimeError:
+                    pass
+        self.regions.clear()
 
     def _draw_region(self, psim, region: RegionView) -> None:
         if not psim.TreeNode(region.spec.name):
@@ -484,10 +529,11 @@ class MultimodalViewer:
         finally:
             psim.TreePop()
 
-    def callback(self) -> None:
-        import polyscope.imgui as psim
+    def draw_controls(self, psim, *, show_title: bool = True) -> None:
+        """Draw controls for standalone or embedded use."""
 
-        psim.TextUnformatted("Multimodal lung viewer")
+        if show_title:
+            psim.TextUnformatted("Multimodal lung viewer")
         psim.TextWrapped(self.message)
         changed, index = psim.Combo("Layout", self.layout_index, list(LAYOUTS))
         if changed:
@@ -499,6 +545,11 @@ class MultimodalViewer:
         for region in self.regions:
             self._draw_region(psim, region)
 
+    def callback(self) -> None:
+        import polyscope.imgui as psim
+
+        self.draw_controls(psim)
+
     def run(self, *, smoke: bool = False) -> None:
         import polyscope as ps
 
@@ -506,7 +557,7 @@ class MultimodalViewer:
         ps.init()
         ps.set_ground_plane_mode("none")
         ps.set_navigation_style("free")
-        self._register()
+        self.register_scene()
         ps.set_user_callback(self.callback)
         ps.reset_camera_to_home_view()
         ps.show(1 if smoke else None)
@@ -537,6 +588,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--surface",
         "--stl",
+        "--ply",
         action="append",
         default=[],
         metavar="[REGION=]PATH",

@@ -45,7 +45,9 @@ environment in place.
 ## CT/MR and surface comparison demo
 
 `multimodal_viewer.py` loads any number of named regions. A region may contain
-one CT or MR image and one or more STL/PLY surfaces. Every region and surface
+one CT or MR image and one or more STL/PLY surfaces. PLY is a first-class input:
+use `--ply`, `--surface`, or the existing `--stl` spelling for either mesh
+format. Every region and surface
 has a unique Polyscope structure name, so files with the same basename do not
 replace each other.
 
@@ -62,7 +64,7 @@ Load NIfTI, MHA, or another SimpleITK-readable volume file:
 python multimodal_viewer.py \
   --ct "CT=data/ct.nii.gz" \
   --mr "MRI=data/mri.nii.gz" \
-  --stl "CT=data/ct_lung.stl" \
+  --ply "CT=data/ct_lung.ply" \
   --stl "MRI=data/mr_lung.stl"
 ```
 
@@ -109,6 +111,42 @@ python multimodal_viewer.py --manifest path/to/demo.json
 
 Running `python multimodal_viewer.py` without arguments opens the public lung
 PLY surfaces already included in this repository.
+
+## Consolidated animation and comparison demo
+
+`hologram.py` now contains the original **Extraction**, **Growing**, and
+**Ventilation** animations plus a fourth **CT / MR / surfaces** scene. The
+fourth scene embeds the same comparison controls described above, including
+side-by-side/overlay layout, per-image visibility, slice selection, and
+per-surface visibility and opacity. The old Surprise scene remains removed.
+
+The consolidated scene runs immediately with the checked-in CT NPZ and five
+PLY lobe files. To use private data later, edit only
+`CUSTOM_MULTIMODAL_REGIONS` in `demo_config.py`. Add one dictionary per layout
+slot; files listed in the same dictionary move together, while separate
+dictionaries are kept apart in side-by-side mode. CT and MR may point to a
+SimpleITK-readable image or DICOM directory, and `surfaces` may freely mix STL
+and PLY paths.
+
+```python
+CUSTOM_MULTIMODAL_REGIONS = [
+    {
+        "name": "CT",
+        "modality": "CT",
+        "volume": r"C:\data\ct.nii.gz",
+        "surfaces": [r"C:\data\ct_lung.ply", r"C:\data\airway.stl"],
+    },
+    {
+        "name": "MRI",
+        "modality": "MR",
+        "volume": r"C:\data\mri.nii.gz",
+        "surfaces": [r"C:\data\mri_lung.ply"],
+    },
+]
+```
+
+Run the combined application with `python hologram.py`, then select
+**CT / MR / surfaces** in the Polyscope controls.
 
 ## Bringing the demo into LungViZ
 
@@ -165,6 +203,7 @@ window open:
 ```bash
 python multimodal_viewer.py --smoke
 python hologram.py --smoke
+python hologram.py --smoke-comparison
 python animate_breath.py --smoke
 python animate_grow_tree.py --smoke
 python animate_grow_tree_mesh.py --smoke

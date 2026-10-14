@@ -22,6 +22,18 @@ class DemoDataTests(unittest.TestCase):
         self.assertEqual(vertices.shape[1], 3)
         self.assertEqual(faces.shape[1], 3)
 
+    def test_public_npz_loads_as_ct_without_simpleitk(self):
+        volume = load_medical_volume(
+            RegionSpec(
+                "Public CT",
+                modality="CT",
+                volume_path=PUBLIC_DATA / "raw_3D_RAS.npz",
+            )
+        )
+        self.assertEqual(volume.values.ndim, 3)
+        self.assertEqual(volume.spacing.shape, (3,))
+        self.assertEqual(volume.transform[2, 2], -1.0)
+
     def test_missing_private_data_has_actionable_message(self):
         with self.assertRaisesRegex(SystemExit, "private ps_demo_data"):
             require_private_data("file-that-is-not-public.example")

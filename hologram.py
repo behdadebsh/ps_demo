@@ -5,8 +5,47 @@ import numpy as np
 import pickle
 import sys
 import time, math
+from pathlib import Path
 
 from demo_io import PUBLIC_DATA, load_triangle_surface, validate_public_bundle
+from demo_config import CUSTOM_MULTIMODAL_REGIONS
+from multimodal_viewer import MultimodalViewer, RegionSpec
+
+
+def comparison_specs():
+    """Return private configured regions, or a runnable public-data example."""
+
+    if CUSTOM_MULTIMODAL_REGIONS:
+        specs = []
+        for item in CUSTOM_MULTIMODAL_REGIONS:
+            volume = item.get("volume")
+            specs.append(
+                RegionSpec(
+                    name=str(item["name"]),
+                    modality=str(item["modality"]).upper() if item.get("modality") else None,
+                    volume_path=Path(volume).expanduser().resolve() if volume else None,
+                    surface_paths=[
+                        Path(path).expanduser().resolve()
+                        for path in item.get("surfaces", [])
+                    ],
+                )
+            )
+        return specs
+
+    return [
+        RegionSpec(
+            "Public CT image",
+            modality="CT",
+            volume_path=PUBLIC_DATA / "raw_3D_RAS.npz",
+        ),
+        RegionSpec(
+            "Public PLY lobes",
+            surface_paths=[
+                PUBLIC_DATA / f"{lobe}.ply"
+                for lobe in ("RUL", "RML", "RLL", "LUL", "LLL")
+            ],
+        ),
+    ]
 
 if "--check" in sys.argv:
     summary = validate_public_bundle()
@@ -94,6 +133,24 @@ vent = False
 # Shared variables
 existing = False # SHARED variable
 existing_plane = False
+comparison = False
+comparison_viewer = None
+
+
+def remove_animation_planes():
+    global existing_plane
+    if not existing_plane:
+        return
+    for _ in range(4):
+        ps.remove_last_scene_slice_plane()
+    existing_plane = False
+
+
+def clear_comparison():
+    global comparison_viewer
+    if comparison_viewer is not None:
+        comparison_viewer.clear_scene()
+        comparison_viewer = None
 
 def callback():
     # vars for Spin
@@ -109,6 +166,7 @@ def callback():
     global vent, n_vent, update_vent, vent_f, vols_by_frame, pts
     # shared vars
     global existing, existing_plane
+    global comparison, comparison_viewer
 
     update_spin = False
     update_extract = False
@@ -208,6 +266,8 @@ def callback():
 
     changed_ext, extract = psim.Checkbox("Extraction", extract)
     if changed_ext:
+        clear_comparison()
+        comparison = False
         ps.remove_all_structures()
         tree=pts=None
         existing = False
@@ -275,17 +335,14 @@ def callback():
     
     changed_grow, grow = psim.Checkbox("Growing", grow)
     if changed_grow:
+        clear_comparison()
+        comparison = False
         ps.remove_all_structures()
         tree=pts=None
         existing = False
         if grow:
             ps.set_navigation_style('free')
-            if existing_plane:
-                ps.remove_last_scene_slice_plane()
-                ps.remove_last_scene_slice_plane()
-                ps.remove_last_scene_slice_plane()
-                ps.remove_last_scene_slice_plane()
-                existing_plane=False
+            remove_animation_planes()
             extract=vent=False
             update_extract=update_vent=False
         if not grow:
@@ -329,7 +386,7 @@ def callback():
     if(psim.TreeNode("Manual")):
         slider_grow, grow_f = psim.SliderInt("Current Frame",grow_f,0,n_frames_grow-1)
         if slider_grow:
-            if extract or vent: # if clicked on manual slider while other stuff was activated
+            if extract or vent or comparison: # avoid replacing another active scene
                 psim.TreePop() # close TreeNode to avoid complains
                 return # ignore the click or else it'll seg fault
             grow=False # stop autoplay
@@ -342,17 +399,14 @@ def callback():
 
     changed_vent, vent = psim.Checkbox("Ventilation",vent)
     if changed_vent:
+        clear_comparison()
+        comparison = False
         ps.remove_all_structures()
         tree=pts=None
         existing = False
         if vent:
             ps.set_navigation_style('free')
-            if existing_plane:
-                ps.remove_last_scene_slice_plane()
-                ps.remove_last_scene_slice_plane()
-                ps.remove_last_scene_slice_plane()
-                ps.remove_last_scene_slice_plane()
-                existing_plane=False
+            remove_animation_planes()
 
             extract=grow=False
             update_extract=update_grow=False
@@ -381,7 +435,33 @@ def callback():
         pts.set_point_radius_quantity("volume")
         psim.TextUnformatted(f"Lung volume: {np.sum(vols_by_frame[vent_f])/10**6:.2f} L")
 
+    psim.Separator()
+    changed_comparison, comparison = psim.Checkbox("CT / MR / surfaces", comparison)
+    if changed_comparison:
+        clear_comparison()
+        ps.remove_all_structures()
+        tree = pts = None
+        existing = False
+        if comparison:
+            extract = grow = vent = False
+            update_extract = update_grow = update_vent = False
+            remove_animation_planes()
+            ps.set_navigation_style("free")
+            ps.set_view_projection_mode("perspective")
+            comparison_viewer = MultimodalViewer(
+                comparison_specs(), layout="side-by-side"
+            )
+            comparison_viewer.register_scene()
+            ps.reset_camera_to_home_view()
+    if comparison and comparison_viewer is not None:
+        comparison_viewer.draw_controls(psim, show_title=False)
+
 ps.set_user_callback(callback)
 ps.set_ground_plane_mode("none")
 ps.set_background_color([0,0,0])
-ps.show(1 if "--smoke" in sys.argv else None)
+if "--smoke-comparison" in sys.argv:
+    comparison = True
+    comparison_viewer = MultimodalViewer(comparison_specs(), layout="side-by-side")
+    comparison_viewer.register_scene()
+    ps.reset_camera_to_home_view()
+ps.show(1 if "--smoke" in sys.argv or "--smoke-comparison" in sys.argv else None)
