@@ -119,6 +119,8 @@ perfusion_vmin, perfusion_vmax = np.percentile(
     perfusion_flows_by_frame, (1.0, 99.0)
 )
 PERFUSION_FRAME_DELAY = 0.05
+PERFUSION_TREE_RADIUS = 0.020
+PERFUSION_TERMINAL_RADIUS = 0.004
 
 perfusion_low = np.min(perfusion_data.nodes, axis=0)
 perfusion_high = np.max(perfusion_data.nodes, axis=0)
@@ -410,7 +412,7 @@ def callback():
                 perfusion_data.nodes,
                 perfusion_data.edges,
                 color=[0.75, 0.12, 0.12],
-                radius=0.010,
+                radius=PERFUSION_TREE_RADIUS,
             )
             tree.add_scalar_quantity(
                 "radius",
@@ -423,7 +425,7 @@ def callback():
                 "perfusion terminals",
                 perfusion_terminal_positions,
                 enabled=True,
-                radius=0.014,
+                radius=PERFUSION_TERMINAL_RADIUS,
             )
             ps.reset_camera_to_home_view()
     if update_perfusion:
@@ -435,7 +437,6 @@ def callback():
             cmap="jet",
             enabled=True,
         )
-        pts.set_point_radius_quantity("flow")
 
     psim.Separator()
     changed_comparison, comparison = psim.Checkbox("CT / MR / surfaces", comparison)

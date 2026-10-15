@@ -131,9 +131,9 @@ the top of `hologram.py` if a subtler or stronger effect is preferred.
 
 The **Perfusion** scene displays a stationary pulmonary arterial tree using
 the supplied element radii. Its 30,933 terminal points animate through the 50
-samples of one cardiac cycle. As in the Ventilation scene, terminal flow drives
-both point colour and radius, while the vessel nodes and terminal coordinates
-remain stationary.
+samples of one cardiac cycle. Terminal flow drives terminal colour. Terminal
+radius, vessel nodes, and terminal coordinates remain fixed throughout the
+cycle.
 
 Terminal flow is mapped by connectivity, not by assuming that node and element
 numbers match. Each terminal node is associated with its single incident
