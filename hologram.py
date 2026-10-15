@@ -11,7 +11,7 @@ from demo_io import (
     PUBLIC_DATA,
     load_triangle_surface,
     prepare_ventilation_animation,
-    scale_points_about_centre,
+    scale_transform_about_centre,
     validate_public_bundle,
 )
 from demo_config import CUSTOM_MULTIMODAL_REGIONS
@@ -142,6 +142,8 @@ vent = False
 existing = False # SHARED variable
 comparison = False
 comparison_viewer = None
+smoke_transition = "--smoke-grow-then-ventilate" in sys.argv
+smoke_transition_frame = 0
 
 
 def clear_comparison():
@@ -151,11 +153,11 @@ def clear_comparison():
         comparison_viewer = None
 
 
-def breathing_positions(points, frame):
-    """Expand tissue or airway geometry with the same measured breath phase."""
+def breathing_transform(frame):
+    """Return one cheap shared transform for tissue and airway geometry."""
 
-    return scale_points_about_centre(
-        points, ventilation_centre, breath_scale[frame]
+    return scale_transform_about_centre(
+        ventilation_centre, breath_scale[frame]
     )
 
 def callback():
@@ -169,6 +171,17 @@ def callback():
     # shared vars
     global existing
     global comparison, comparison_viewer
+    global smoke_transition_frame
+
+    if smoke_transition:
+        smoke_transition_frame += 1
+        if smoke_transition_frame == n_frames_grow + 5:
+            ps.remove_all_structures()
+            tree = pts = None
+            meshes_ps = []
+            existing = False
+            grow = False
+            vent = True
 
     update_spin = False
     update_grow = False
@@ -256,15 +269,13 @@ def callback():
                 surf = ps.register_surface_mesh(f'{lobe}',vertices,faces,smooth_shade=True, transparency=transparency[0],enabled=True)
                 meshes_ps.append(surf) # store to set ignore planes later
             
-            tree = ps.register_curve_network("upper airway",frames[0]['nodes'],frames[0]['edges'],color=[1.0,0.8,0.8],radius=0.018) # register upper airway
-            tree.add_scalar_quantity("radius", frames[0]['radius'], defined_on='nodes')
-            tree.set_node_radius_quantity("radius") # nodes become visible in 'orthographic' projection
-        
+
         if grow_f>=n_frames_grow: # once done growing tree, show tissue units
             update_grow = False
             for m in meshes_ps:
                 m.set_transparency(0)
-            pts = ps.register_point_cloud("tissue units", np.array(coordinates),color=[255/255,50/255,255/255],enabled=True,radius=0.01) # Register terminal units
+            if pts is None:
+                pts = ps.register_point_cloud("tissue units", np.array(coordinates),color=[255/255,50/255,255/255],enabled=True,radius=0.01) # Register terminal units
 
         if grow_f==0:
             ps.remove_all_structures() # clear memory
@@ -273,6 +284,8 @@ def callback():
             existing = False
             update_grow=False
     if update_grow: # Grow tree
+        if tree is not None:
+            tree.remove()
         tree = ps.register_curve_network("airways",frames[grow_f]['nodes'],frames[grow_f]['edges'],color=[1.0,0.8,0.8],radius=0.018)
         tree.add_scalar_quantity("radius", frames[grow_f]['radius'], defined_on='nodes', enabled=False)
         tree.set_node_radius_quantity("radius")
@@ -288,6 +301,8 @@ def callback():
             grow=False # stop autoplay
             for m in meshes_ps:
                 m.set_transparency(0) # hide meshes
+            if tree is not None:
+                tree.remove()
             tree = ps.register_curve_network("airways",frames[grow_f]['nodes'],frames[grow_f]['edges'],color=[1.0,0.8,0.8],radius=0.018)
             tree.add_scalar_quantity("radius", frames[grow_f]['radius'], defined_on='nodes', enabled=False)
             tree.set_node_radius_quantity("radius")
@@ -316,7 +331,7 @@ def callback():
             existing=True
             pts = ps.register_point_cloud(
                 "tissue units",
-                breathing_positions(coordinates, vent_f),
+                coordinates,
                 enabled=True,
                 radius=0.014,
             )
@@ -325,7 +340,7 @@ def callback():
 
             tree = ps.register_curve_network(
                 "airways",
-                breathing_positions(nodes, vent_f),
+                nodes,
                 edges,
                 color=[1,0.8,0.8],
                 radius=0.018,
@@ -334,16 +349,13 @@ def callback():
             tree.set_node_radius_quantity("radius")
 
     if update_vent:
-        pts.update_point_positions(breathing_positions(coordinates, vent_f))
-        tree.update_node_positions(breathing_positions(nodes, vent_f))
+        transform = breathing_transform(vent_f)
+        pts.set_transform(transform)
+        tree.set_transform(transform)
         pts.add_scalar_quantity("volume", vols_by_frame[vent_f],vminmax=(vmin,vmax),enabled=True,cmap='jet')
         pts.set_point_radius_quantity("volume")
         psim.TextUnformatted(
             f"Lung volume: {raw_total_volume[vent_f]/10**6:.2f} L"
-        )
-        psim.TextUnformatted(
-            f"Visual emphasis: {VENTILATION_VALUE_GAIN:.0f}x values, "
-            f"{breath_scale[vent_f]:.2f}x expansion"
         )
 
     psim.Separator()
@@ -379,6 +391,8 @@ if "--smoke-ventilation" in sys.argv:
     vent = True
 if "--smoke-growing" in sys.argv:
     grow = True
+if smoke_transition:
+    grow = True
 smoke_requested = any(
     option in sys.argv
     for option in (
@@ -386,7 +400,18 @@ smoke_requested = any(
         "--smoke-comparison",
         "--smoke-ventilation",
         "--smoke-growing",
+        "--smoke-grow-then-ventilate",
     )
 )
-smoke_frames = 3 if "--smoke-growing" in sys.argv else 1 if smoke_requested else None
+smoke_frames = (
+    n_frames_grow + 15
+    if smoke_transition
+    else 5
+    if "--smoke-ventilation" in sys.argv
+    else 3
+    if "--smoke-growing" in sys.argv
+    else 1
+    if smoke_requested
+    else None
+)
 ps.show(smoke_frames)
