@@ -125,6 +125,7 @@ spin = False
 
 # GROW variables
 tree=None
+meshes_ps=[] # retained across callback frames while the lobes fade
 grow_f = 0
 n_frames_grow = len(frames)
 n_grow = n_frames_grow + 10
@@ -161,7 +162,7 @@ def callback():
     # vars for Spin
     global spin_f, n_spin, spin_radius, centre, spin, elevation, axis, up_dir
     # vars for Growing
-    global grow, grow_f, n_grow, n_frames_grow, frames, tree, transparency, tree
+    global grow, grow_f, n_grow, n_frames_grow, frames, tree, transparency, meshes_ps
     # vars for Ventilation
     global coordinates, pts, nodes,edges,radius
     global vent, n_vent, update_vent, vent_f, vols_by_frame, pts
@@ -234,6 +235,7 @@ def callback():
         comparison = False
         ps.remove_all_structures()
         tree=pts=None
+        meshes_ps=[]
         existing = False
         if grow:
             ps.set_navigation_style('free')
@@ -249,7 +251,6 @@ def callback():
         if not existing:
             ps.set_view_projection_mode('perspective') # not sure if setting it everytime slows it slightly. looks ok for now
             existing = True
-            meshes_ps = []
             for (lobe,mesh) in zip(lobes,meshes):
                 vertices, faces = mesh
                 surf = ps.register_surface_mesh(f'{lobe}',vertices,faces,smooth_shade=True, transparency=transparency[0],enabled=True)
@@ -268,6 +269,7 @@ def callback():
         if grow_f==0:
             ps.remove_all_structures() # clear memory
             tree=pts=None
+            meshes_ps=[]
             existing = False
             update_grow=False
     if update_grow: # Grow tree
@@ -297,6 +299,7 @@ def callback():
         comparison = False
         ps.remove_all_structures()
         tree=pts=None
+        meshes_ps=[]
         existing = False
         if vent:
             ps.set_navigation_style('free')
@@ -349,6 +352,7 @@ def callback():
         clear_comparison()
         ps.remove_all_structures()
         tree = pts = None
+        meshes_ps=[]
         existing = False
         if comparison:
             grow = vent = False
@@ -373,11 +377,16 @@ if "--smoke-comparison" in sys.argv:
     ps.reset_camera_to_home_view()
 if "--smoke-ventilation" in sys.argv:
     vent = True
-ps.show(
-    1
-    if any(
-        option in sys.argv
-        for option in ("--smoke", "--smoke-comparison", "--smoke-ventilation")
+if "--smoke-growing" in sys.argv:
+    grow = True
+smoke_requested = any(
+    option in sys.argv
+    for option in (
+        "--smoke",
+        "--smoke-comparison",
+        "--smoke-ventilation",
+        "--smoke-growing",
     )
-    else None
 )
+smoke_frames = 3 if "--smoke-growing" in sys.argv else 1 if smoke_requested else None
+ps.show(smoke_frames)

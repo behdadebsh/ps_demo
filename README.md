@@ -210,6 +210,7 @@ window open:
 ```bash
 python multimodal_viewer.py --smoke
 python hologram.py --smoke
+python hologram.py --smoke-growing
 python hologram.py --smoke-ventilation
 python hologram.py --smoke-comparison
 python animate_breath.py --smoke
