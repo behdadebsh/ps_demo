@@ -410,7 +410,7 @@ def callback():
                 perfusion_data.nodes,
                 perfusion_data.edges,
                 color=[0.75, 0.12, 0.12],
-                radius=0.007,
+                radius=0.010,
             )
             tree.add_scalar_quantity(
                 "radius",
@@ -423,7 +423,7 @@ def callback():
                 "perfusion terminals",
                 perfusion_terminal_positions,
                 enabled=True,
-                radius=0.010,
+                radius=0.014,
             )
             ps.reset_camera_to_home_view()
     if update_perfusion:
