@@ -11,6 +11,7 @@ from demo_io import (
     PUBLIC_DATA,
     load_triangle_surface,
     prepare_ventilation_animation,
+    scale_points_about_centre,
     validate_public_bundle,
 )
 from demo_config import CUSTOM_MULTIMODAL_REGIONS
@@ -149,12 +150,12 @@ def clear_comparison():
         comparison_viewer = None
 
 
-def breathing_positions(frame):
-    """Expand tissue points around their centre using the measured breath phase."""
+def breathing_positions(points, frame):
+    """Expand tissue or airway geometry with the same measured breath phase."""
 
-    return ventilation_centre + (
-        coordinates - ventilation_centre
-    ) * breath_scale[frame]
+    return scale_points_about_centre(
+        points, ventilation_centre, breath_scale[frame]
+    )
 
 def callback():
     # vars for Spin
@@ -312,19 +313,26 @@ def callback():
             existing=True
             pts = ps.register_point_cloud(
                 "tissue units",
-                breathing_positions(vent_f),
+                breathing_positions(coordinates, vent_f),
                 enabled=True,
                 radius=0.014,
             )
             pts.add_scalar_quantity("volume",vols_by_frame[vent_f],vminmax=(vmin,vmax),enabled=True,cmap='jet')
             pts.set_point_radius_quantity("volume")
 
-            tree = ps.register_curve_network("airways",nodes,edges,color=[1,0.8,0.8],radius=0.018)
+            tree = ps.register_curve_network(
+                "airways",
+                breathing_positions(nodes, vent_f),
+                edges,
+                color=[1,0.8,0.8],
+                radius=0.018,
+            )
             tree.add_scalar_quantity("radius",radius)
             tree.set_node_radius_quantity("radius")
 
     if update_vent:
-        pts.update_point_positions(breathing_positions(vent_f))
+        pts.update_point_positions(breathing_positions(coordinates, vent_f))
+        tree.update_node_positions(breathing_positions(nodes, vent_f))
         pts.add_scalar_quantity("volume", vols_by_frame[vent_f],vminmax=(vmin,vmax),enabled=True,cmap='jet')
         pts.set_point_radius_quantity("volume")
         psim.TextUnformatted(

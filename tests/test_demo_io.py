@@ -9,6 +9,7 @@ from demo_io import (
     load_triangle_surface,
     prepare_ventilation_animation,
     require_private_data,
+    scale_points_about_centre,
     validate_public_bundle,
 )
 from multimodal_viewer import RegionSpec, load_medical_volume
@@ -50,6 +51,19 @@ class DemoDataTests(unittest.TestCase):
     def test_ventilation_emphasis_rejects_invalid_bounds(self):
         with self.assertRaisesRegex(ValueError, "scale bounds"):
             prepare_ventilation_animation(np.ones((2, 2)), scale_min=1.1, scale_max=0.9)
+
+    def test_tissue_and_airway_can_share_the_same_breathing_transform(self):
+        centre = np.asarray([1.0, 2.0, 3.0])
+        tissue = np.asarray([[2.0, 4.0, 6.0]])
+        airway = np.asarray([[0.0, 0.0, 0.0]])
+        np.testing.assert_allclose(
+            scale_points_about_centre(tissue, centre, 1.1),
+            [[2.1, 4.2, 6.3]],
+        )
+        np.testing.assert_allclose(
+            scale_points_about_centre(airway, centre, 1.1),
+            [[-0.1, -0.2, -0.3]],
+        )
 
     def test_missing_private_data_has_actionable_message(self):
         with self.assertRaisesRegex(SystemExit, "private ps_demo_data"):

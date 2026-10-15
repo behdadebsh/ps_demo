@@ -45,6 +45,22 @@ def prepare_ventilation_animation(
     return emphasized, totals, scales
 
 
+def scale_points_about_centre(
+    points: np.ndarray, centre: np.ndarray, scale: float
+) -> np.ndarray:
+    """Apply one breathing scale to geometry while preserving a shared centre."""
+
+    positions = np.asarray(points, dtype=float)
+    origin = np.asarray(centre, dtype=float)
+    if positions.ndim != 2 or positions.shape[1] != 3:
+        raise ValueError("Points must be an N-by-3 array")
+    if origin.shape != (3,):
+        raise ValueError("Scaling centre must contain three coordinates")
+    if scale <= 0.0:
+        raise ValueError("Geometry scale must be positive")
+    return origin + (positions - origin) * scale
+
+
 def load_triangle_surface(path: str | Path) -> tuple[np.ndarray, np.ndarray]:
     """Load one STL/PLY as vertices and triangular faces without VTK."""
 
