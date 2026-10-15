@@ -112,7 +112,8 @@ def validate_public_bundle() -> dict[str, int]:
         "tree": PUBLIC_DATA / "tree.npz",
         "growth": PUBLIC_DATA / "growing.pkl",
         "ventilation": PUBLIC_DATA / "ventilation.npz",
-        "perfusion": PUBLIC_DATA / "pulmonary_perfusion_disease_case.npz",
+        "cteph_perfusion": PUBLIC_DATA / "pulmonary_perfusion_disease_case.npz",
+        "healthy_perfusion": PUBLIC_DATA / "pulmonary_perfusion_healthy_flows.npz",
     }
     missing = [path.name for path in required.values() if not path.is_file()]
     if missing:
@@ -146,9 +147,15 @@ def validate_public_bundle() -> dict[str, int]:
     if acinus.ndim != 2 or acinus.shape[1] != 3 or dvdt.ndim != 2:
         raise ValueError("ventilation.npz has invalid point or frame data")
 
-    from perfusion_io import load_perfusion_data
+    from perfusion_io import load_perfusion_data, load_terminal_flow_data
 
-    perfusion = load_perfusion_data(required["perfusion"])
+    cteph_perfusion = load_perfusion_data(required["cteph_perfusion"])
+    healthy_perfusion = load_terminal_flow_data(required["healthy_perfusion"])
+    if not np.array_equal(
+        healthy_perfusion.terminal_element_ids,
+        cteph_perfusion.terminal_element_ids,
+    ):
+        raise ValueError("Healthy and CTEPH terminal mappings do not match")
 
     surface_faces = 0
     for name in ("LUL.ply", "LLL.ply", "RUL.ply", "RML.ply", "RLL.ply"):
@@ -162,8 +169,9 @@ def validate_public_bundle() -> dict[str, int]:
         "growth_frames": int(len(frames)),
         "ventilation_points": int(len(acinus)),
         "ventilation_frames": int(len(dvdt)),
-        "perfusion_vessels": int(len(perfusion.edges)),
-        "perfusion_terminals": int(len(perfusion.terminal_node_indices)),
-        "perfusion_frames": int(len(perfusion.cycle_phase)),
+        "perfusion_vessels": int(len(cteph_perfusion.edges)),
+        "perfusion_terminals": int(len(cteph_perfusion.terminal_node_indices)),
+        "healthy_perfusion_frames": int(len(healthy_perfusion.cycle_phase)),
+        "cteph_perfusion_frames": int(len(cteph_perfusion.cycle_phase)),
         "surface_faces": int(surface_faces),
     }

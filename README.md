@@ -114,9 +114,9 @@ PLY surfaces already included in this repository.
 
 ## Consolidated animation and comparison demo
 
-`hologram.py` contains the **Growing**, **Ventilation**, and **Perfusion**
-animations plus a **CT / MR / surfaces** scene. The image/surface scene embeds the same
-comparison controls described above, including
+`hologram.py` contains **Growing**, **Ventilation**, **Healthy perfusion**, and
+**CTEPH** animations plus a **CT / MR / surfaces** scene. The image/surface
+scene embeds the same comparison controls described above, including
 side-by-side/overlay layout, per-image visibility, slice selection, and
 per-surface visibility and opacity. The old Surprise scene remains removed.
 
@@ -127,13 +127,15 @@ expiration readable during a presentation without relabelling the amplified
 visual as a physiological measurement. These presentation constants are near
 the top of `hologram.py` if a subtler or stronger effect is preferred.
 
-## Disease-case perfusion
+## Healthy and CTEPH perfusion
 
-The **Perfusion** scene displays a stationary pulmonary arterial tree using
-the supplied element radii. Its 30,933 terminal points animate through the 50
-samples of one cardiac cycle. Terminal flow drives terminal colour. Terminal
-radius, vessel nodes, and terminal coordinates remain fixed throughout the
-cycle.
+**Healthy perfusion** appears immediately after Ventilation, followed by the
+existing disease case relabelled **CTEPH**. Both scenes display the same
+stationary pulmonary arterial tree using the supplied element radii. Their
+30,933 terminal points animate through 50 samples of one cardiac cycle.
+Terminal flow drives terminal colour; terminal radius, vessel nodes, and
+terminal coordinates remain fixed throughout the cycle.
+Both cases use the same colour range so equal flow values have equal colours.
 
 Terminal flow is mapped by connectivity, not by assuming that node and element
 numbers match. Each terminal node is associated with its single incident
@@ -141,12 +143,13 @@ vessel element, then that element's row is selected from the time-dependent
 flow table. As a validation, the mean of every terminal waveform is compared
 with the supplied steady-state terminal flow when the dataset is built.
 
-The public repository contains only the anonymized, derived
-`hologram_data/pulmonary_perfusion_disease_case.npz`. It retains the complete
-tree geometry, element radii, terminal mapping, terminal pressure, steady flow,
-and the supplied terminal flow samples, but excludes the original filenames
-and raw text files. The original flow units are preserved rather than guessed
-or relabeled.
+The public repository contains only anonymized derived data. The CTEPH file,
+`hologram_data/pulmonary_perfusion_disease_case.npz`, retains the complete tree
+geometry, radii, terminal mapping, pressure, steady flow, and terminal flow.
+The healthy file, `hologram_data/pulmonary_perfusion_healthy_flows.npz`, stores
+only its mapped terminal waveforms and reuses the same anatomy. Original
+filenames and raw text files are excluded, and flow units are preserved rather
+than guessed or relabelled.
 
 The viewer uses the supplied vessel radius directly. Terminal pulsation is
 made presentation-visible using the same temporal-deviation approach as the
@@ -161,6 +164,16 @@ python perfusion_io.py \
   --terminals data/terminal_response.exnode \
   --flows data/element_flows.txt \
   --output hologram_data/pulmonary_perfusion_disease_case.npz
+```
+
+Map another flow table, such as the healthy case, onto the same terminal
+elements without duplicating the geometry:
+
+```bash
+python perfusion_io.py \
+  --base hologram_data/pulmonary_perfusion_disease_case.npz \
+  --flows data/healthy_element_flows.txt \
+  --output hologram_data/pulmonary_perfusion_healthy_flows.npz
 ```
 
 The consolidated scene runs immediately with the checked-in CT NPZ and five
@@ -248,7 +261,8 @@ python multimodal_viewer.py --smoke
 python hologram.py --smoke
 python hologram.py --smoke-growing
 python hologram.py --smoke-ventilation
-python hologram.py --smoke-perfusion
+python hologram.py --smoke-healthy-perfusion
+python hologram.py --smoke-cteph
 python hologram.py --smoke-comparison
 python animate_breath.py --smoke
 python animate_grow_tree.py --smoke

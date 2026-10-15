@@ -13,7 +13,11 @@ from demo_io import (
     validate_public_bundle,
 )
 from multimodal_viewer import RegionSpec, load_medical_volume
-from perfusion_io import load_perfusion_data, prepare_perfusion_animation
+from perfusion_io import (
+    load_perfusion_data,
+    load_terminal_flow_data,
+    prepare_perfusion_animation,
+)
 
 
 class DemoDataTests(unittest.TestCase):
@@ -25,10 +29,11 @@ class DemoDataTests(unittest.TestCase):
         self.assertGreater(summary["ventilation_frames"], 0)
         self.assertGreater(summary["perfusion_vessels"], 0)
         self.assertGreater(summary["perfusion_terminals"], 0)
-        self.assertGreater(summary["perfusion_frames"], 0)
+        self.assertGreater(summary["healthy_perfusion_frames"], 0)
+        self.assertGreater(summary["cteph_perfusion_frames"], 0)
         self.assertGreater(summary["surface_faces"], 0)
 
-    def test_disease_perfusion_bundle_maps_terminal_waveforms(self):
+    def test_cteph_perfusion_bundle_maps_terminal_waveforms(self):
         data = load_perfusion_data(
             PUBLIC_DATA / "pulmonary_perfusion_disease_case.npz"
         )
@@ -48,6 +53,26 @@ class DemoDataTests(unittest.TestCase):
         np.testing.assert_allclose(
             np.mean(data.terminal_flow, axis=0),
             data.terminal_steady_flow,
+            rtol=5e-4,
+            atol=5e-6,
+        )
+
+    def test_healthy_perfusion_uses_same_mapping_and_different_flows(self):
+        cteph = load_perfusion_data(
+            PUBLIC_DATA / "pulmonary_perfusion_disease_case.npz"
+        )
+        healthy = load_terminal_flow_data(
+            PUBLIC_DATA / "pulmonary_perfusion_healthy_flows.npz"
+        )
+        np.testing.assert_array_equal(
+            healthy.terminal_element_ids,
+            cteph.terminal_element_ids,
+        )
+        self.assertEqual(healthy.terminal_flow.shape, (50, 30933))
+        self.assertFalse(np.array_equal(healthy.terminal_flow, cteph.terminal_flow))
+        np.testing.assert_allclose(
+            np.mean(healthy.terminal_flow, axis=0),
+            healthy.terminal_steady_flow,
             rtol=5e-4,
             atol=5e-6,
         )
