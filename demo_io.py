@@ -13,6 +13,38 @@ PUBLIC_DATA = ROOT / "hologram_data"
 PRIVATE_DATA = ROOT / "ps_demo_data"
 
 
+def prepare_ventilation_animation(
+    values: np.ndarray,
+    *,
+    value_gain: float = 3.0,
+    scale_min: float = 0.90,
+    scale_max: float = 1.10,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return emphasized values, original totals, and data-driven breath scales."""
+
+    source = np.asarray(values, dtype=float)
+    if source.ndim != 2 or not source.size:
+        raise ValueError("Ventilation values must be a non-empty frame-by-point array")
+    if value_gain < 0.0:
+        raise ValueError("Ventilation value gain cannot be negative")
+    if scale_min <= 0.0 or scale_max < scale_min:
+        raise ValueError("Breathing scale bounds are invalid")
+
+    reference = np.mean(source, axis=0)
+    emphasized = np.clip(
+        reference + value_gain * (source - reference), 0.0, None
+    )
+    totals = np.sum(source, axis=1)
+    total_range = np.ptp(totals)
+    phase = (
+        (totals - np.min(totals)) / total_range
+        if total_range > 0.0
+        else np.zeros_like(totals)
+    )
+    scales = scale_min + phase * (scale_max - scale_min)
+    return emphasized, totals, scales
+
+
 def load_triangle_surface(path: str | Path) -> tuple[np.ndarray, np.ndarray]:
     """Load one STL/PLY as vertices and triangular faces without VTK."""
 

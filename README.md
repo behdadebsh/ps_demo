@@ -114,11 +114,18 @@ PLY surfaces already included in this repository.
 
 ## Consolidated animation and comparison demo
 
-`hologram.py` now contains the original **Extraction**, **Growing**, and
-**Ventilation** animations plus a fourth **CT / MR / surfaces** scene. The
-fourth scene embeds the same comparison controls described above, including
+`hologram.py` contains the **Growing** and **Ventilation** animations plus a
+**CT / MR / surfaces** scene. The image/surface scene embeds the same
+comparison controls described above, including
 side-by-side/overlay layout, per-image visibility, slice selection, and
 per-surface visibility and opacity. The old Surprise scene remains removed.
+
+Ventilation keeps the original simulated lung volume for the displayed litre
+value, while using a 3x deviation gain for point colour/radius and a
+data-driven 0.90x to 1.10x tissue expansion. This makes inspiration and
+expiration readable during a presentation without relabelling the amplified
+visual as a physiological measurement. These presentation constants are near
+the top of `hologram.py` if a subtler or stronger effect is preferred.
 
 The consolidated scene runs immediately with the checked-in CT NPZ and five
 PLY lobe files. To use private data later, edit only
@@ -203,6 +210,7 @@ window open:
 ```bash
 python multimodal_viewer.py --smoke
 python hologram.py --smoke
+python hologram.py --smoke-ventilation
 python hologram.py --smoke-comparison
 python animate_breath.py --smoke
 python animate_grow_tree.py --smoke

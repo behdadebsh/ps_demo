@@ -4,10 +4,15 @@ import polyscope.imgui as psim
 import numpy as np
 import pickle
 import sys
-import time, math
+import time
 from pathlib import Path
 
-from demo_io import PUBLIC_DATA, load_triangle_surface, validate_public_bundle
+from demo_io import (
+    PUBLIC_DATA,
+    load_triangle_surface,
+    prepare_ventilation_animation,
+    validate_public_bundle,
+)
 from demo_config import CUSTOM_MULTIMODAL_REGIONS
 from multimodal_viewer import MultimodalViewer, RegionSpec
 
@@ -59,18 +64,6 @@ ps.init()
 ps.set_up_dir("z_up")
 ps.set_front_dir("neg_y_front")
 
-# === SCENE 1: extracting upper airway + lobe geometries from 3D image ===
-# Register 3D image volume
-data = np.load(PUBLIC_DATA / 'raw_3D_RAS.npz')
-spacing = data['spacing']
-arr_img = data['array']
-shape = arr_img.shape # in (x,y,z)
-swap_arr = arr_img.transpose(2,1,0) # rearrange [Z,Y,X] to [X,Y,Z]
-
-bound_low = np.array((0, 0, 0))
-bound_high = np.array((shape[2]*spacing[0], shape[1]*spacing[1], -shape[0]*spacing[2]))
-centre = ((bound_low+bound_high)/2) # set target to centre of block (for turntable revolution)
-
 # Register lobe surface meshes
 meshes = []
 lobes = ['RUL','RML','RLL','LUL','LLL']
@@ -83,17 +76,40 @@ nodes = data["nodes"]
 edges = data["edges"]
 radius = data["radius"]
 
-# === SCENE 2: tree growing into lobes ===
+# === SCENE 1: tree growing into lobes ===
 with (PUBLIC_DATA / "growing.pkl").open("rb") as f:
     frames = pickle.load(f)
 
-# === SCENE 3: lung ventilating
+# === SCENE 2: lung ventilating ===
 data = np.load(PUBLIC_DATA / 'ventilation.npz')
 coordinates = data['acinus']
-vols_by_frame = data['dvdt']
+raw_vols_by_frame = data['dvdt']
+
+# Keep the physiological values for the volume label, but exaggerate their
+# deviation around the temporal mean so point size and colour read clearly in
+# a live presentation. Geometry also expands from 90% to 110% according to the
+# measured total-volume breathing phase.
+VENTILATION_VALUE_GAIN = 3.0
+BREATH_SCALE_MIN = 0.90
+BREATH_SCALE_MAX = 1.10
+vols_by_frame, raw_total_volume, breath_scale = prepare_ventilation_animation(
+    raw_vols_by_frame,
+    value_gain=VENTILATION_VALUE_GAIN,
+    scale_min=BREATH_SCALE_MIN,
+    scale_max=BREATH_SCALE_MAX,
+)
+ventilation_centre = np.mean(coordinates, axis=0)
+vmin, vmax = np.percentile(vols_by_frame, (1.0, 99.0))
+
+# Frame the shared animation camera from the checked-in lobe geometry.
+all_lobe_vertices = np.concatenate([vertices for vertices, _faces in meshes], axis=0)
+scene_low = np.min(all_lobe_vertices, axis=0)
+scene_high = np.max(all_lobe_vertices, axis=0)
+centre = (scene_low + scene_high) * 0.5
+spin_radius = np.max(scene_high - scene_low) * 1.1
 
 # --- CLEAR MEMORY: delete variables not needed after callback ---
-del data, arr_img, bound_high, bound_low, lobe
+del data, all_lobe_vertices, scene_low, scene_high, lobe
 import gc
 gc.collect()
 
@@ -102,19 +118,9 @@ gc.collect()
 axis = 'Z-axis' # initial camera revolving axis
 spin_f = 0 # spin curr frame
 n_spin = 500 # spin total frames
-spin_radius = shape[1]*spacing[1]
 elevation = centre[2]
 ps.look_at((centre[0],centre[0]-spin_radius,centre[2]),centre) # not sure y it doesn't automatically centre cam now. add this to centre cam
 spin = False
-
-# EXTRACTION variables
-ext_f = 0
-n_extract = 250
-slice_t = np.linspace(-1, shape[1]*spacing[1], n_extract)
-slice_t2 = np.linspace(0, -shape[0]*spacing[0], n_extract)
-pos = slice_t[0]
-pos2 = slice_t2[0]
-extract = False
 
 # GROW variables
 tree=None
@@ -126,24 +132,14 @@ grow = False
 
 # VENTILATION variables
 pts=None
-n_vent = len(vols_by_frame)
+n_vent = len(raw_vols_by_frame)
 vent_f = 0
 vent = False
 
 # Shared variables
 existing = False # SHARED variable
-existing_plane = False
 comparison = False
 comparison_viewer = None
-
-
-def remove_animation_planes():
-    global existing_plane
-    if not existing_plane:
-        return
-    for _ in range(4):
-        ps.remove_last_scene_slice_plane()
-    existing_plane = False
 
 
 def clear_comparison():
@@ -152,35 +148,34 @@ def clear_comparison():
         comparison_viewer.clear_scene()
         comparison_viewer = None
 
+
+def breathing_positions(frame):
+    """Expand tissue points around their centre using the measured breath phase."""
+
+    return ventilation_centre + (
+        coordinates - ventilation_centre
+    ) * breath_scale[frame]
+
 def callback():
     # vars for Spin
     global spin_f, n_spin, spin_radius, centre, spin, elevation, axis, up_dir
-    # vars for Extraction
-    global ext_f, n_extract, slice_t, slice_t2, extract, lobes, meshes, swap_arr, shape, spacing
-    global meshes_ps, upper_airway, img_block,img_block2
-    global cor_plane_pos,cor_plane_neg,ax_plane_neg,ax_plane_pos, pos, pos2
     # vars for Growing
     global grow, grow_f, n_grow, n_frames_grow, frames, tree, transparency, tree
     # vars for Ventilation
     global coordinates, pts, nodes,edges,radius
     global vent, n_vent, update_vent, vent_f, vols_by_frame, pts
     # shared vars
-    global existing, existing_plane
+    global existing
     global comparison, comparison_viewer
 
     update_spin = False
-    update_extract = False
     update_grow = False
     update_vent = False
-    vmin = math.floor(np.min(vols_by_frame))
-    vmax = math.ceil(np.max(vols_by_frame))
 
     psim.PushItemWidth(100)
     _, spin = psim.Checkbox("Spin", spin)
     if spin: # Advance the frame
-        if extract:
-            ps.set_view_projection_mode('orthographic') # switch from default 'perspective' projection to orthographic projection
-        elif grow or vent:
+        if grow or vent or comparison:
             ps.set_view_projection_mode('perspective')
         update_spin = True
         spin_f = (spin_f + 1) % n_spin
@@ -229,109 +224,8 @@ def callback():
         update_spin = update_spin or slider_elevation or slider_rpm
         psim.TreePop()
 
-    psim.Separator()
-    if(psim.TreeNode('Planes')):
-        slider_cor_plane_neg, pos = psim.SliderFloat("Cor Plane", pos, centre[1]-centre[1],centre[1]+centre[1])
-        psim.SameLine()
-        slider_ax_plane_neg, pos2 = psim.SliderFloat("Ax Plane", pos2, centre[2]-centre[2],centre[2]+centre[2])
-        if slider_cor_plane_neg or slider_ax_plane_neg:
-            extract=False # stop autoplay
-            ps.remove_last_scene_slice_plane() # Remove prev slice plane
-            ps.remove_last_scene_slice_plane() # Remove prev slice plane
-            ps.remove_last_scene_slice_plane() # Remove prev slice plane
-            ps.remove_last_scene_slice_plane() # Remove prev slice plane
-
-            # Create updated planes
-            cor_plane_neg = ps.add_scene_slice_plane()
-            cor_plane_neg.set_pose((0., pos+10, 0.), (0., -1., 0.))
-            cor_plane_pos = ps.add_scene_slice_plane()
-            cor_plane_pos.set_pose((0., pos, 0.), (0., 1., 0.))
-
-            ax_plane_neg = ps.add_scene_slice_plane()
-            ax_plane_neg.set_pose((0., 0., pos2+10), (0., 0., -1.))
-            ax_plane_pos = ps.add_scene_slice_plane()
-            ax_plane_pos.set_pose((0., 0., pos2), (0., 0., 1.))
-            existing_plane=True
-
-            if tree is not None:
-                tree.set_ignore_slice_plane(ax_plane_neg,True)
-                tree.set_ignore_slice_plane(cor_plane_pos,True)
-            if pts is not None:
-                pts.set_ignore_slice_plane(ax_plane_neg,True)
-                pts.set_ignore_slice_plane(cor_plane_pos,True)
-            
-        psim.TreePop()
     psim.PopItemWidth()
     psim.Separator()
-
-    changed_ext, extract = psim.Checkbox("Extraction", extract)
-    if changed_ext:
-        clear_comparison()
-        comparison = False
-        ps.remove_all_structures()
-        tree=pts=None
-        existing = False
-        if extract:
-            grow=vent=False # make sure other scenes off
-            update_grow=update_vent=False
-            ps.set_navigation_style('turntable')
-    if not extract:
-        update_extract = False
-    if extract: # SCENE 1 button
-        ps.set_view_projection_mode('orthographic') # removes laggy initial transition
-        update_extract = True
-        ext_f = (ext_f + 1) % n_extract
-        pos = slice_t[ext_f]
-        pos2 = slice_t2[ext_f]
-
-        if not existing: # at the beginning, register all structures
-            existing = True
-            meshes_ps = []
-            for (lobe,mesh) in zip(lobes,meshes):
-                vertices, faces = mesh
-                surf = ps.register_surface_mesh(f'{lobe}',vertices,faces,smooth_shade=True, transparency=0.5)
-                meshes_ps.append(surf) # store to set ignore planes later
-
-            upper_airway = ps.register_curve_network("upper airway",frames[0]['nodes'],frames[0]['edges'],color=[1.0,0.8,0.8],radius=0.01) # register upper airway
-            upper_airway.add_scalar_quantity("radius", frames[0]['radius'], defined_on='nodes')
-            upper_airway.set_node_radius_quantity("radius")
-
-            img_block = ps.register_volume_grid("image block", (shape[2],shape[1],shape[0]),bound_low=(0,0,0), # register 3D image
-                bound_high=(shape[2]*spacing[0],shape[1]*spacing[1],-shape[0]*spacing[2]),enabled=True)
-            img_block.add_scalar_quantity("intensity",swap_arr,defined_on='nodes',enabled=True,cmap='gray')
-
-            img_block2 = ps.register_volume_grid("image2", (shape[2],shape[1],shape[0]),bound_low=(0,0,0), # maybe better to register slice by slice?
-                bound_high=(shape[2]*spacing[0],shape[1]*spacing[1],-shape[0]*spacing[2]),enabled=True)
-            img_block2.add_scalar_quantity("intensity",swap_arr,defined_on='nodes',enabled=True,cmap='gray')
-    if update_extract: # Animate the plane sliding along the scene
-        ps.remove_last_scene_slice_plane() # Remove prev slice plane
-        ps.remove_last_scene_slice_plane() # Remove prev slice plane
-        ps.remove_last_scene_slice_plane() # Remove prev slice plane
-        ps.remove_last_scene_slice_plane() # Remove prev slice plane
-
-        # Create updated planes
-        cor_plane_neg = ps.add_scene_slice_plane()
-        cor_plane_neg.set_pose((0., pos+10, 0.), (0., -1., 0.))
-        cor_plane_pos = ps.add_scene_slice_plane()
-        cor_plane_pos.set_pose((0., pos, 0.), (0., 1., 0.))
-
-        ax_plane_neg = ps.add_scene_slice_plane()
-        ax_plane_neg.set_pose((0., 0., pos2+10), (0., 0., -1.))
-        ax_plane_pos = ps.add_scene_slice_plane()
-        ax_plane_pos.set_pose((0., 0., pos2), (0., 0., 1.))
-        existing_plane=True
-
-        img_block.set_ignore_slice_plane(ax_plane_neg,True)
-        img_block.set_ignore_slice_plane(ax_plane_pos,True)
-        img_block2.set_ignore_slice_plane(cor_plane_neg,True)
-        img_block2.set_ignore_slice_plane(cor_plane_pos,True)
-
-        for m in meshes_ps: # Set ignore meshes
-            m.set_ignore_slice_plane(cor_plane_pos,True)
-            m.set_ignore_slice_plane(ax_plane_neg,True)
-
-        upper_airway.set_ignore_slice_plane(cor_plane_pos,True)
-        upper_airway.set_ignore_slice_plane(ax_plane_neg,True)
     
     changed_grow, grow = psim.Checkbox("Growing", grow)
     if changed_grow:
@@ -342,12 +236,11 @@ def callback():
         existing = False
         if grow:
             ps.set_navigation_style('free')
-            remove_animation_planes()
-            extract=vent=False
-            update_extract=update_vent=False
+            vent=False
+            update_vent=False
         if not grow:
             update_grow = False
-    if grow: # SCENE 2 button
+    if grow: # SCENE 1 button
         update_grow = True
         grow_f = (grow_f + 1) % n_grow # starts from 1. goes to n_grow-1. then resets to 0.
         time.sleep(0.05)
@@ -386,7 +279,7 @@ def callback():
     if(psim.TreeNode("Manual")):
         slider_grow, grow_f = psim.SliderInt("Current Frame",grow_f,0,n_frames_grow-1)
         if slider_grow:
-            if extract or vent or comparison: # avoid replacing another active scene
+            if vent or comparison: # avoid replacing another active scene
                 psim.TreePop() # close TreeNode to avoid complains
                 return # ignore the click or else it'll seg fault
             grow=False # stop autoplay
@@ -406,34 +299,41 @@ def callback():
         existing = False
         if vent:
             ps.set_navigation_style('free')
-            remove_animation_planes()
-
-            extract=grow=False
-            update_extract=update_grow=False
+            grow=False
+            update_grow=False
         if not vent:
             update_vent = False
-    if vent: # SCENE 3 button
+    if vent: # SCENE 2 button
         update_vent = True
         vent_f = (vent_f+1) % n_vent
         time.sleep(0.05)
         if not existing:
             ps.set_view_projection_mode("perspective")
             existing=True
-            pts = ps.register_point_cloud("tissue units",np.array(coordinates),enabled=True,radius=0.01) # Visualise tissue units
-            pts.add_scalar_quantity("volume",vols_by_frame[0],vminmax=(vmin,vmax),enabled=True,cmap='jet')
+            pts = ps.register_point_cloud(
+                "tissue units",
+                breathing_positions(vent_f),
+                enabled=True,
+                radius=0.014,
+            )
+            pts.add_scalar_quantity("volume",vols_by_frame[vent_f],vminmax=(vmin,vmax),enabled=True,cmap='jet')
             pts.set_point_radius_quantity("volume")
 
             tree = ps.register_curve_network("airways",nodes,edges,color=[1,0.8,0.8],radius=0.018)
             tree.add_scalar_quantity("radius",radius)
             tree.set_node_radius_quantity("radius")
 
-            # Add tidal vol label
-            psim.TreeNode("Lung volume")
-            psim.TextUnformatted(f"Lung volume: {np.sum(vols_by_frame[vent_f])/10**6:.2f} L")
     if update_vent:
+        pts.update_point_positions(breathing_positions(vent_f))
         pts.add_scalar_quantity("volume", vols_by_frame[vent_f],vminmax=(vmin,vmax),enabled=True,cmap='jet')
         pts.set_point_radius_quantity("volume")
-        psim.TextUnformatted(f"Lung volume: {np.sum(vols_by_frame[vent_f])/10**6:.2f} L")
+        psim.TextUnformatted(
+            f"Lung volume: {raw_total_volume[vent_f]/10**6:.2f} L"
+        )
+        psim.TextUnformatted(
+            f"Visual emphasis: {VENTILATION_VALUE_GAIN:.0f}x values, "
+            f"{breath_scale[vent_f]:.2f}x expansion"
+        )
 
     psim.Separator()
     changed_comparison, comparison = psim.Checkbox("CT / MR / surfaces", comparison)
@@ -443,9 +343,8 @@ def callback():
         tree = pts = None
         existing = False
         if comparison:
-            extract = grow = vent = False
-            update_extract = update_grow = update_vent = False
-            remove_animation_planes()
+            grow = vent = False
+            update_grow = update_vent = False
             ps.set_navigation_style("free")
             ps.set_view_projection_mode("perspective")
             comparison_viewer = MultimodalViewer(
@@ -464,4 +363,13 @@ if "--smoke-comparison" in sys.argv:
     comparison_viewer = MultimodalViewer(comparison_specs(), layout="side-by-side")
     comparison_viewer.register_scene()
     ps.reset_camera_to_home_view()
-ps.show(1 if "--smoke" in sys.argv or "--smoke-comparison" in sys.argv else None)
+if "--smoke-ventilation" in sys.argv:
+    vent = True
+ps.show(
+    1
+    if any(
+        option in sys.argv
+        for option in ("--smoke", "--smoke-comparison", "--smoke-ventilation")
+    )
+    else None
+)

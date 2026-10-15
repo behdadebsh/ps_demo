@@ -4,7 +4,13 @@ from pathlib import Path
 
 import numpy as np
 
-from demo_io import PUBLIC_DATA, load_triangle_surface, require_private_data, validate_public_bundle
+from demo_io import (
+    PUBLIC_DATA,
+    load_triangle_surface,
+    prepare_ventilation_animation,
+    require_private_data,
+    validate_public_bundle,
+)
 from multimodal_viewer import RegionSpec, load_medical_volume
 
 
@@ -33,6 +39,17 @@ class DemoDataTests(unittest.TestCase):
         self.assertEqual(volume.values.ndim, 3)
         self.assertEqual(volume.spacing.shape, (3,))
         self.assertEqual(volume.transform[2, 2], -1.0)
+
+    def test_ventilation_emphasis_preserves_totals_and_expands_full_range(self):
+        values = np.asarray([[2.0, 4.0], [3.0, 5.0], [4.0, 6.0]])
+        emphasized, totals, scales = prepare_ventilation_animation(values)
+        np.testing.assert_allclose(totals, (6.0, 8.0, 10.0))
+        np.testing.assert_allclose(scales, (0.90, 1.00, 1.10))
+        np.testing.assert_allclose(emphasized[2] - emphasized[1], (3.0, 3.0))
+
+    def test_ventilation_emphasis_rejects_invalid_bounds(self):
+        with self.assertRaisesRegex(ValueError, "scale bounds"):
+            prepare_ventilation_animation(np.ones((2, 2)), scale_min=1.1, scale_max=0.9)
 
     def test_missing_private_data_has_actionable_message(self):
         with self.assertRaisesRegex(SystemExit, "private ps_demo_data"):
