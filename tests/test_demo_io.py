@@ -13,6 +13,7 @@ from demo_io import (
     validate_public_bundle,
 )
 from multimodal_viewer import RegionSpec, load_medical_volume
+from perfusion_io import load_perfusion_data
 
 
 class DemoDataTests(unittest.TestCase):
@@ -22,7 +23,25 @@ class DemoDataTests(unittest.TestCase):
         self.assertGreater(summary["tree_nodes"], 0)
         self.assertGreater(summary["growth_frames"], 0)
         self.assertGreater(summary["ventilation_frames"], 0)
+        self.assertGreater(summary["perfusion_vessels"], 0)
+        self.assertGreater(summary["perfusion_terminals"], 0)
+        self.assertGreater(summary["perfusion_frames"], 0)
         self.assertGreater(summary["surface_faces"], 0)
+
+    def test_disease_perfusion_bundle_maps_terminal_waveforms(self):
+        data = load_perfusion_data(
+            PUBLIC_DATA / "pulmonary_perfusion_disease_case.npz"
+        )
+        self.assertEqual(len(data.nodes), 61875)
+        self.assertEqual(len(data.edges), 61874)
+        self.assertEqual(len(data.terminal_node_indices), 30933)
+        self.assertEqual(data.terminal_flow.shape, (50, 30933))
+        np.testing.assert_allclose(
+            np.mean(data.terminal_flow, axis=0),
+            data.terminal_steady_flow,
+            rtol=5e-4,
+            atol=5e-6,
+        )
 
     def test_public_ply_loads_without_vtk(self):
         vertices, faces = load_triangle_surface(PUBLIC_DATA / "LUL.ply")

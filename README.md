@@ -114,8 +114,8 @@ PLY surfaces already included in this repository.
 
 ## Consolidated animation and comparison demo
 
-`hologram.py` contains the **Growing** and **Ventilation** animations plus a
-**CT / MR / surfaces** scene. The image/surface scene embeds the same
+`hologram.py` contains the **Growing**, **Ventilation**, and **Perfusion**
+animations plus a **CT / MR / surfaces** scene. The image/surface scene embeds the same
 comparison controls described above, including
 side-by-side/overlay layout, per-image visibility, slice selection, and
 per-surface visibility and opacity. The old Surprise scene remains removed.
@@ -126,6 +126,43 @@ data-driven 0.90x to 1.10x tissue expansion. This makes inspiration and
 expiration readable during a presentation without relabelling the amplified
 visual as a physiological measurement. These presentation constants are near
 the top of `hologram.py` if a subtler or stronger effect is preferred.
+
+## Disease-case perfusion
+
+The **Perfusion** scene displays a stationary pulmonary arterial tree using
+the supplied element radii. Its 30,933 terminal points animate through the 50
+samples of one cardiac cycle: colour shows signed terminal flow and point size
+shows flow magnitude. Neither the vessel nodes nor the terminal coordinates
+move during the cycle. Because the source table has no timestamps, the UI
+reports normalized cardiac phase from 0% to 100% rather than inventing a time
+unit.
+
+Terminal flow is mapped by connectivity, not by assuming that node and element
+numbers match. Each terminal node is associated with its single incident
+vessel element, then that element's row is selected from the time-dependent
+flow table. As a validation, the mean of every terminal waveform is compared
+with the supplied steady-state terminal flow when the dataset is built.
+
+The public repository contains only the anonymized, derived
+`hologram_data/pulmonary_perfusion_disease_case.npz`. It retains the complete
+tree geometry, element radii, terminal mapping, terminal pressure, steady flow,
+and the supplied terminal flow samples, but excludes the original filenames
+and raw text files. The original flow units are preserved rather than guessed
+or relabeled.
+
+For visibility, the viewer uses the square root of radius to draw distal
+vessels while retaining the original radius array as the **vessel radius**
+quantity. Rebuild the anonymized file from equivalent EX/text inputs with:
+
+```bash
+python perfusion_io.py \
+  --nodes data/vessel_tree.exnode \
+  --elements data/vessel_tree.exelem \
+  --radii data/vessel_radius.exelem \
+  --terminals data/terminal_response.exnode \
+  --flows data/element_flows.txt \
+  --output hologram_data/pulmonary_perfusion_disease_case.npz
+```
 
 The consolidated scene runs immediately with the checked-in CT NPZ and five
 PLY lobe files. To use private data later, edit only
@@ -212,6 +249,7 @@ python multimodal_viewer.py --smoke
 python hologram.py --smoke
 python hologram.py --smoke-growing
 python hologram.py --smoke-ventilation
+python hologram.py --smoke-perfusion
 python hologram.py --smoke-comparison
 python animate_breath.py --smoke
 python animate_grow_tree.py --smoke

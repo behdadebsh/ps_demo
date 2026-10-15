@@ -16,6 +16,7 @@ from demo_io import (
 )
 from demo_config import CUSTOM_MULTIMODAL_REGIONS
 from multimodal_viewer import MultimodalViewer, RegionSpec
+from perfusion_io import load_perfusion_data
 
 
 def comparison_specs():
@@ -102,15 +103,35 @@ vols_by_frame, raw_total_volume, breath_scale = prepare_ventilation_animation(
 ventilation_centre = np.mean(coordinates, axis=0)
 vmin, vmax = np.percentile(vols_by_frame, (1.0, 99.0))
 
+# === SCENE 3: disease-case pulmonary perfusion ===
+perfusion_data = load_perfusion_data(
+    PUBLIC_DATA / "pulmonary_perfusion_disease_case.npz"
+)
+perfusion_terminal_positions = perfusion_data.nodes[
+    perfusion_data.terminal_node_indices
+]
+perfusion_flow_limit = max(
+    float(np.percentile(np.abs(perfusion_data.terminal_flow), 99.5)),
+    float(np.finfo(np.float32).eps),
+)
+PERFUSION_FRAME_DELAY = 0.02
+
+perfusion_low = np.min(perfusion_data.nodes, axis=0)
+perfusion_high = np.max(perfusion_data.nodes, axis=0)
+perfusion_centre = (perfusion_low + perfusion_high) * 0.5
+perfusion_spin_radius = np.max(perfusion_high - perfusion_low) * 1.1
+
 # Frame the shared animation camera from the checked-in lobe geometry.
 all_lobe_vertices = np.concatenate([vertices for vertices, _faces in meshes], axis=0)
 scene_low = np.min(all_lobe_vertices, axis=0)
 scene_high = np.max(all_lobe_vertices, axis=0)
 centre = (scene_low + scene_high) * 0.5
 spin_radius = np.max(scene_high - scene_low) * 1.1
+lung_centre = centre.copy()
+lung_spin_radius = spin_radius
 
 # --- CLEAR MEMORY: delete variables not needed after callback ---
-del data, all_lobe_vertices, scene_low, scene_high, lobe
+del data, all_lobe_vertices, scene_low, scene_high, perfusion_low, perfusion_high, lobe
 import gc
 gc.collect()
 
@@ -137,6 +158,11 @@ pts=None
 n_vent = len(raw_vols_by_frame)
 vent_f = 0
 vent = False
+
+# PERFUSION variables
+perfusion_f = 0
+n_perfusion = len(perfusion_data.cycle_phase)
+perfusion = False
 
 # Shared variables
 existing = False # SHARED variable
@@ -166,6 +192,8 @@ def callback():
     # vars for Ventilation
     global coordinates, pts, nodes,edges,radius
     global vent, n_vent, update_vent, vent_f, vols_by_frame, pts
+    # vars for Perfusion
+    global perfusion, perfusion_f, n_perfusion, update_perfusion
     # shared vars
     global existing
     global comparison, comparison_viewer
@@ -173,11 +201,12 @@ def callback():
     update_spin = False
     update_grow = False
     update_vent = False
+    update_perfusion = False
 
     psim.PushItemWidth(100)
     _, spin = psim.Checkbox("Spin", spin)
     if spin: # Advance the frame
-        if grow or vent or comparison:
+        if grow or vent or perfusion or comparison:
             ps.set_view_projection_mode('perspective')
         update_spin = True
         spin_f = (spin_f + 1) % n_spin
@@ -239,8 +268,11 @@ def callback():
         existing = False
         if grow:
             ps.set_navigation_style('free')
-            vent=False
-            update_vent=False
+            vent=perfusion=False
+            update_vent=update_perfusion=False
+            centre = lung_centre.copy()
+            spin_radius = lung_spin_radius
+            elevation = centre[2]
         if not grow:
             update_grow = False
     if grow: # SCENE 1 button
@@ -282,7 +314,7 @@ def callback():
     if(psim.TreeNode("Manual")):
         slider_grow, grow_f = psim.SliderInt("Current Frame",grow_f,0,n_frames_grow-1)
         if slider_grow:
-            if vent or comparison: # avoid replacing another active scene
+            if vent or perfusion or comparison: # avoid replacing another active scene
                 psim.TreePop() # close TreeNode to avoid complains
                 return # ignore the click or else it'll seg fault
             grow=False # stop autoplay
@@ -303,8 +335,11 @@ def callback():
         existing = False
         if vent:
             ps.set_navigation_style('free')
-            grow=False
-            update_grow=False
+            grow=perfusion=False
+            update_grow=update_perfusion=False
+            centre = lung_centre.copy()
+            spin_radius = lung_spin_radius
+            elevation = centre[2]
         if not vent:
             update_vent = False
     if vent: # SCENE 2 button
@@ -346,6 +381,88 @@ def callback():
             f"{breath_scale[vent_f]:.2f}x expansion"
         )
 
+    changed_perfusion, perfusion = psim.Checkbox("Perfusion", perfusion)
+    if changed_perfusion:
+        clear_comparison()
+        comparison = False
+        ps.remove_all_structures()
+        tree = pts = None
+        meshes_ps=[]
+        existing = False
+        if perfusion:
+            grow = vent = False
+            update_grow = update_vent = False
+            centre = perfusion_centre.copy()
+            spin_radius = perfusion_spin_radius
+            elevation = centre[2]
+            ps.set_navigation_style("free")
+            ps.set_view_projection_mode("perspective")
+        else:
+            update_perfusion = False
+    if perfusion:
+        update_perfusion = True
+        perfusion_f = (perfusion_f + 1) % n_perfusion
+        time.sleep(PERFUSION_FRAME_DELAY)
+        if not existing:
+            existing = True
+            tree = ps.register_curve_network(
+                "pulmonary arterial tree",
+                perfusion_data.nodes,
+                perfusion_data.edges,
+                color=[0.75, 0.12, 0.12],
+                radius=0.003,
+            )
+            tree.add_scalar_quantity(
+                "vessel radius",
+                perfusion_data.edge_radius,
+                defined_on="edges",
+                enabled=False,
+            )
+            tree.add_scalar_quantity(
+                "display vessel radius",
+                np.sqrt(perfusion_data.edge_radius),
+                defined_on="edges",
+                enabled=False,
+            )
+            tree.set_edge_radius_quantity("display vessel radius")
+            pts = ps.register_point_cloud(
+                "perfusion terminals",
+                perfusion_terminal_positions,
+                enabled=True,
+                radius=0.003,
+            )
+            ps.reset_camera_to_home_view()
+    if update_perfusion:
+        terminal_flow = perfusion_data.terminal_flow[perfusion_f]
+        clipped_flow = np.clip(
+            terminal_flow, -perfusion_flow_limit, perfusion_flow_limit
+        )
+        flow_magnitude = np.sqrt(
+            np.clip(np.abs(terminal_flow) / perfusion_flow_limit, 0.0, 1.0)
+        )
+        pts.add_scalar_quantity(
+            "terminal flow",
+            clipped_flow,
+            datatype="symmetric",
+            vminmax=(-perfusion_flow_limit, perfusion_flow_limit),
+            cmap="coolwarm",
+            enabled=True,
+        )
+        pts.add_scalar_quantity(
+            "flow magnitude",
+            flow_magnitude,
+            vminmax=(0.0, 1.0),
+            enabled=False,
+        )
+        pts.set_point_radius_quantity("flow magnitude")
+        psim.TextUnformatted(
+            f"Cardiac phase: {perfusion_data.cycle_phase[perfusion_f] * 100:.0f}%"
+        )
+        psim.TextUnformatted(
+            f"Terminal flow: {np.min(terminal_flow):.3g} to "
+            f"{np.max(terminal_flow):.3g}"
+        )
+
     psim.Separator()
     changed_comparison, comparison = psim.Checkbox("CT / MR / surfaces", comparison)
     if changed_comparison:
@@ -355,8 +472,11 @@ def callback():
         meshes_ps=[]
         existing = False
         if comparison:
-            grow = vent = False
-            update_grow = update_vent = False
+            grow = vent = perfusion = False
+            update_grow = update_vent = update_perfusion = False
+            centre = lung_centre.copy()
+            spin_radius = lung_spin_radius
+            elevation = centre[2]
             ps.set_navigation_style("free")
             ps.set_view_projection_mode("perspective")
             comparison_viewer = MultimodalViewer(
@@ -379,6 +499,8 @@ if "--smoke-ventilation" in sys.argv:
     vent = True
 if "--smoke-growing" in sys.argv:
     grow = True
+if "--smoke-perfusion" in sys.argv:
+    perfusion = True
 smoke_requested = any(
     option in sys.argv
     for option in (
@@ -386,7 +508,14 @@ smoke_requested = any(
         "--smoke-comparison",
         "--smoke-ventilation",
         "--smoke-growing",
+        "--smoke-perfusion",
     )
 )
-smoke_frames = 3 if "--smoke-growing" in sys.argv else 1 if smoke_requested else None
+smoke_frames = (
+    3
+    if "--smoke-growing" in sys.argv or "--smoke-perfusion" in sys.argv
+    else 1
+    if smoke_requested
+    else None
+)
 ps.show(smoke_frames)

@@ -112,6 +112,7 @@ def validate_public_bundle() -> dict[str, int]:
         "tree": PUBLIC_DATA / "tree.npz",
         "growth": PUBLIC_DATA / "growing.pkl",
         "ventilation": PUBLIC_DATA / "ventilation.npz",
+        "perfusion": PUBLIC_DATA / "pulmonary_perfusion_disease_case.npz",
     }
     missing = [path.name for path in required.values() if not path.is_file()]
     if missing:
@@ -145,6 +146,10 @@ def validate_public_bundle() -> dict[str, int]:
     if acinus.ndim != 2 or acinus.shape[1] != 3 or dvdt.ndim != 2:
         raise ValueError("ventilation.npz has invalid point or frame data")
 
+    from perfusion_io import load_perfusion_data
+
+    perfusion = load_perfusion_data(required["perfusion"])
+
     surface_faces = 0
     for name in ("LUL.ply", "LLL.ply", "RUL.ply", "RML.ply", "RLL.ply"):
         _vertices, faces = load_triangle_surface(PUBLIC_DATA / name)
@@ -157,5 +162,8 @@ def validate_public_bundle() -> dict[str, int]:
         "growth_frames": int(len(frames)),
         "ventilation_points": int(len(acinus)),
         "ventilation_frames": int(len(dvdt)),
+        "perfusion_vessels": int(len(perfusion.edges)),
+        "perfusion_terminals": int(len(perfusion.terminal_node_indices)),
+        "perfusion_frames": int(len(perfusion.cycle_phase)),
         "surface_faces": int(surface_faces),
     }
