@@ -24,6 +24,24 @@ class PerfusionData:
     cycle_phase: np.ndarray
 
 
+def prepare_perfusion_animation(
+    values: np.ndarray, *, value_gain: float = 4.0
+) -> np.ndarray:
+    """Emphasize pulsatile terminal flow while preserving no-flow terminals."""
+
+    source = np.asarray(values, dtype=np.float32)
+    if source.ndim != 2 or not source.size:
+        raise ValueError("Perfusion values must be a non-empty frame-by-terminal array")
+    if not np.all(np.isfinite(source)):
+        raise ValueError("Perfusion values contain non-finite values")
+    if value_gain < 0.0:
+        raise ValueError("Perfusion value gain cannot be negative")
+
+    reference = np.mean(source, axis=0)
+    emphasized = reference + value_gain * (source - reference)
+    return np.clip(emphasized, 0.0, None).astype(np.float32, copy=False)
+
+
 def _parse_exnode(path: str | Path, value_count: int) -> dict[int, np.ndarray]:
     result: dict[int, np.ndarray] = {}
     current: int | None = None

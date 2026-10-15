@@ -13,7 +13,7 @@ from demo_io import (
     validate_public_bundle,
 )
 from multimodal_viewer import RegionSpec, load_medical_volume
-from perfusion_io import load_perfusion_data
+from perfusion_io import load_perfusion_data, prepare_perfusion_animation
 
 
 class DemoDataTests(unittest.TestCase):
@@ -36,12 +36,27 @@ class DemoDataTests(unittest.TestCase):
         self.assertEqual(len(data.edges), 61874)
         self.assertEqual(len(data.terminal_node_indices), 30933)
         self.assertEqual(data.terminal_flow.shape, (50, 30933))
+        terminal_edges = data.edges[data.terminal_element_ids - 1]
+        self.assertTrue(
+            np.all(
+                np.any(
+                    terminal_edges == data.terminal_node_indices[:, np.newaxis],
+                    axis=1,
+                )
+            )
+        )
         np.testing.assert_allclose(
             np.mean(data.terminal_flow, axis=0),
             data.terminal_steady_flow,
             rtol=5e-4,
             atol=5e-6,
         )
+
+    def test_perfusion_emphasis_amplifies_changes_and_preserves_no_flow(self):
+        values = np.asarray([[2.0, 0.0], [3.0, 0.0], [4.0, 0.0]])
+        emphasized = prepare_perfusion_animation(values, value_gain=2.0)
+        np.testing.assert_allclose(emphasized[:, 0], [1.0, 3.0, 5.0])
+        np.testing.assert_array_equal(emphasized[:, 1], 0.0)
 
     def test_public_ply_loads_without_vtk(self):
         vertices, faces = load_triangle_surface(PUBLIC_DATA / "LUL.ply")

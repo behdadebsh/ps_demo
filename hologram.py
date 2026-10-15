@@ -16,7 +16,7 @@ from demo_io import (
 )
 from demo_config import CUSTOM_MULTIMODAL_REGIONS
 from multimodal_viewer import MultimodalViewer, RegionSpec
-from perfusion_io import load_perfusion_data
+from perfusion_io import load_perfusion_data, prepare_perfusion_animation
 
 
 def comparison_specs():
@@ -110,11 +110,15 @@ perfusion_data = load_perfusion_data(
 perfusion_terminal_positions = perfusion_data.nodes[
     perfusion_data.terminal_node_indices
 ]
-perfusion_flow_limit = max(
-    float(np.percentile(np.abs(perfusion_data.terminal_flow), 99.5)),
-    float(np.finfo(np.float32).eps),
+PERFUSION_VALUE_GAIN = 4.0
+perfusion_flows_by_frame = prepare_perfusion_animation(
+    perfusion_data.terminal_flow,
+    value_gain=PERFUSION_VALUE_GAIN,
 )
-PERFUSION_FRAME_DELAY = 0.02
+perfusion_vmin, perfusion_vmax = np.percentile(
+    perfusion_flows_by_frame, (1.0, 99.0)
+)
+PERFUSION_FRAME_DELAY = 0.05
 
 perfusion_low = np.min(perfusion_data.nodes, axis=0)
 perfusion_high = np.max(perfusion_data.nodes, axis=0)
@@ -376,10 +380,6 @@ def callback():
         psim.TextUnformatted(
             f"Lung volume: {raw_total_volume[vent_f]/10**6:.2f} L"
         )
-        psim.TextUnformatted(
-            f"Visual emphasis: {VENTILATION_VALUE_GAIN:.0f}x values, "
-            f"{breath_scale[vent_f]:.2f}x expansion"
-        )
 
     changed_perfusion, perfusion = psim.Checkbox("Perfusion", perfusion)
     if changed_perfusion:
@@ -410,58 +410,32 @@ def callback():
                 perfusion_data.nodes,
                 perfusion_data.edges,
                 color=[0.75, 0.12, 0.12],
-                radius=0.003,
+                radius=0.007,
             )
             tree.add_scalar_quantity(
-                "vessel radius",
+                "radius",
                 perfusion_data.edge_radius,
                 defined_on="edges",
                 enabled=False,
             )
-            tree.add_scalar_quantity(
-                "display vessel radius",
-                np.sqrt(perfusion_data.edge_radius),
-                defined_on="edges",
-                enabled=False,
-            )
-            tree.set_edge_radius_quantity("display vessel radius")
+            tree.set_edge_radius_quantity("radius")
             pts = ps.register_point_cloud(
                 "perfusion terminals",
                 perfusion_terminal_positions,
                 enabled=True,
-                radius=0.003,
+                radius=0.010,
             )
             ps.reset_camera_to_home_view()
     if update_perfusion:
-        terminal_flow = perfusion_data.terminal_flow[perfusion_f]
-        clipped_flow = np.clip(
-            terminal_flow, -perfusion_flow_limit, perfusion_flow_limit
-        )
-        flow_magnitude = np.sqrt(
-            np.clip(np.abs(terminal_flow) / perfusion_flow_limit, 0.0, 1.0)
-        )
+        terminal_flow = perfusion_flows_by_frame[perfusion_f]
         pts.add_scalar_quantity(
-            "terminal flow",
-            clipped_flow,
-            datatype="symmetric",
-            vminmax=(-perfusion_flow_limit, perfusion_flow_limit),
-            cmap="coolwarm",
+            "flow",
+            terminal_flow,
+            vminmax=(perfusion_vmin, perfusion_vmax),
+            cmap="jet",
             enabled=True,
         )
-        pts.add_scalar_quantity(
-            "flow magnitude",
-            flow_magnitude,
-            vminmax=(0.0, 1.0),
-            enabled=False,
-        )
-        pts.set_point_radius_quantity("flow magnitude")
-        psim.TextUnformatted(
-            f"Cardiac phase: {perfusion_data.cycle_phase[perfusion_f] * 100:.0f}%"
-        )
-        psim.TextUnformatted(
-            f"Terminal flow: {np.min(terminal_flow):.3g} to "
-            f"{np.max(terminal_flow):.3g}"
-        )
+        pts.set_point_radius_quantity("flow")
 
     psim.Separator()
     changed_comparison, comparison = psim.Checkbox("CT / MR / surfaces", comparison)

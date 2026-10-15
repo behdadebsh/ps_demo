@@ -131,11 +131,9 @@ the top of `hologram.py` if a subtler or stronger effect is preferred.
 
 The **Perfusion** scene displays a stationary pulmonary arterial tree using
 the supplied element radii. Its 30,933 terminal points animate through the 50
-samples of one cardiac cycle: colour shows signed terminal flow and point size
-shows flow magnitude. Neither the vessel nodes nor the terminal coordinates
-move during the cycle. Because the source table has no timestamps, the UI
-reports normalized cardiac phase from 0% to 100% rather than inventing a time
-unit.
+samples of one cardiac cycle. As in the Ventilation scene, terminal flow drives
+both point colour and radius, while the vessel nodes and terminal coordinates
+remain stationary.
 
 Terminal flow is mapped by connectivity, not by assuming that node and element
 numbers match. Each terminal node is associated with its single incident
@@ -150,9 +148,10 @@ and the supplied terminal flow samples, but excludes the original filenames
 and raw text files. The original flow units are preserved rather than guessed
 or relabeled.
 
-For visibility, the viewer uses the square root of radius to draw distal
-vessels while retaining the original radius array as the **vessel radius**
-quantity. Rebuild the anonymized file from equivalent EX/text inputs with:
+The viewer uses the supplied vessel radius directly. Terminal pulsation is
+made presentation-visible using the same temporal-deviation approach as the
+Ventilation scene; the mapped source flow remains unchanged in the NPZ.
+Rebuild the anonymized file from equivalent EX/text inputs with:
 
 ```bash
 python perfusion_io.py \
